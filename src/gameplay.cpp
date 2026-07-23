@@ -11,12 +11,22 @@
 namespace game {
 namespace {
 
-void DamageTextBox(TextBox& box, float impactX) {
+bool DamageTextBox(TextBox& box, float impactX) {
+    if (box.levelValue) {
+        levelNumber = std::max(0, levelNumber - 1);
+        if (levelValueWord >= 0) {
+            const std::string value = std::to_string(levelNumber);
+            words[levelValueWord].bytes.assign(
+                value.begin(), value.end());
+        }
+        return true;
+    }
     if (box.value && box.organ >= 0) {
         Organ& organ = organs[box.organ];
         const int previousValue = organ.value;
-        if (organ.id == "core")
-            organ.value = std::max(0, organ.value - 1);
+        if (organ.id == "spawn")
+            organ.value =
+                std::max(0, organ.value - organ.decrement);
         else if (organ.id == "shield")
             organ.value =
                 organ.value <= 0 ? organ.maximum : organ.value - 1;
@@ -27,6 +37,7 @@ void DamageTextBox(TextBox& box, float impactX) {
             for (ShieldBlock& shield : shieldBlocks)
                 shield.health = std::min(shield.health, organ.value);
         UpdateValueWord(organ);
+        if (organ.id == "spawn") UpdateSpawnerTypes();
     } else if (box.word >= 0 && !words[box.word].bytes.empty()) {
         const int character = std::clamp(
             static_cast<int>(
@@ -37,6 +48,7 @@ void DamageTextBox(TextBox& box, float impactX) {
         value = static_cast<std::uint8_t>(
             std::max(0, static_cast<int>(value) - 1));
     }
+    return false;
 }
 
 bool HitText(Projectile& projectile) {
@@ -44,9 +56,13 @@ bool HitText(Projectile& projectile) {
         projectile.x, projectile.y, kProjectileSize, kProjectileSize};
     for (TextBox& box : textBoxes) {
         if (!Overlaps(shot, box.rect)) continue;
-        DamageTextBox(box, CenterX(shot));
+        const bool changedLevel =
+            DamageTextBox(box, CenterX(shot));
         SaveMutations();
-        BuildWorldTextBoxes();
+        if (changedLevel)
+            SelectCurrentLevel();
+        else
+            BuildWorldTextBoxes();
         return true;
     }
     return false;
@@ -135,18 +151,22 @@ void DetonateBomb(float x, float y) {
             shield.health = std::max(0, shield.health - 2);
     }
     bool changedText = false;
+    bool changedLevel = false;
     for (TextBox& text : textBoxes) {
         const float dx = x - std::clamp(
             x, text.rect.x, text.rect.x + text.rect.width);
         const float dy = y - std::clamp(
             y, text.rect.y, text.rect.y + text.rect.height);
         if (dx * dx + dy * dy > radiusSquared) continue;
-        DamageTextBox(text, x);
+        changedLevel = DamageTextBox(text, x) || changedLevel;
         changedText = true;
     }
     if (changedText) {
         SaveMutations();
-        BuildWorldTextBoxes();
+        if (changedLevel)
+            SelectCurrentLevel();
+        else
+            BuildWorldTextBoxes();
     }
     explosions.push_back({x, y, kExplosionDuration});
 }
@@ -163,13 +183,13 @@ bool BombObstacle(const Rect& bomb) {
 }
 
 void SpawnBurst(Spawner& spawner) {
-    const bool alternate = spawner.enemyType == interior.alternateEnemy;
-    const int count = alternate
-        ? RandomInt(interior.alternateBurstMin, interior.alternateBurstMax)
-        : RandomInt(interior.burstMin, interior.burstMax);
-    const int health = alternate
-        ? types.at(spawner.enemyType).maxHealth
-        : std::max(1, organs[2].value);
+    const EnemyType& type = types.at(spawner.enemyType);
+    const int count = RandomInt(type.burstMin, type.burstMax);
+    const int healthOrgan = OrganIndex("health");
+    const int health = spawner.enemyType == interior.archetype &&
+            healthOrgan >= 0
+        ? std::max(1, organs[healthOrgan].value)
+        : type.maxHealth;
     for (int i = 0; i < count; ++i) {
         const float angle = RandomFloat(0, kPi * 2);
         const float distance = 38.0f + (i % 3) * 12.0f;
@@ -230,12 +250,235 @@ int NextRoomToward(int room, const std::vector<int>& distances) {
     return best;
 }
 
+float EnemyMovementSpeed(const Enemy& enemy) {
+    const EnemyType& type = types.at(enemy.type);
+    const int speedOrgan = OrganIndex("speed");
+    const int speedMaximum = speedOrgan >= 0
+        ? std::max(1, organs[speedOrgan].maximum) : 1;
+    const float normalSpeed =
+        type.speed * speedMaximum * interior.speedUnit;
+    if (enemy.type != interior.archetype || speedOrgan < 0)
+        return normalSpeed;
+    const float speedSetting = speedMaximum > 1
+        ? static_cast<float>(
+              std::clamp(organs[speedOrgan].value, 1, speedMaximum) - 1) /
+              (speedMaximum - 1)
+        : 1.0f;
+    return normalSpeed * (0.5f + speedSetting * 0.5f);
+}
+
+void FacePoint(Enemy& enemy, float x, float y) {
+    const Rect rect = EnemyRect(enemy);
+    enemy.facing = std::atan2(
+        y - CenterY(rect), x - CenterX(rect)) + kPi * 0.5f;
+}
+
+void MoveEnemyToward(
+    Enemy& enemy, float targetX, float targetY, float speed, float dt) {
+    const Rect current = EnemyRect(enemy);
+    const float dx = targetX - CenterX(current);
+    const float dy = targetY - CenterY(current);
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    if (distance <= 0.01f) return;
+    const float step = std::min(distance, speed * dt);
+    const float moveX = dx / distance * step;
+    const float moveY = dy / distance * step;
+    if (EnemyVisualFitsNetwork(enemy, enemy.x + moveX, enemy.y))
+        enemy.x += moveX;
+    if (EnemyVisualFitsNetwork(enemy, enemy.x, enemy.y + moveY))
+        enemy.y += moveY;
+}
+
+void MoveEnemyAway(
+    Enemy& enemy, float targetX, float targetY, float speed, float dt) {
+    const Rect current = EnemyRect(enemy);
+    MoveEnemyToward(
+        enemy, CenterX(current) * 2.0f - targetX,
+        CenterY(current) * 2.0f - targetY, speed, dt);
+}
+
+void BeginRecovery(Enemy& enemy, const EnemyType& type) {
+    enemy.phase = EnemyPhase::Recover;
+    enemy.phaseTimer = type.attackCooldown;
+    enemy.attackRemaining = 0;
+}
+
+void FireRail(Enemy& enemy, const EnemyType& type) {
+    const Rect source = EnemyRect(enemy);
+    const float startX = CenterX(source);
+    const float startY = CenterY(source);
+    float dx = enemy.targetX - startX;
+    float dy = enemy.targetY - startY;
+    const float directionLength = std::sqrt(dx * dx + dy * dy);
+    if (directionLength <= 0.01f) return;
+    dx /= directionLength;
+    dy /= directionLength;
+    const float width = 6.0f;
+    const float maximumLength = type.attackDistance;
+    const Rect player{playerX, playerY, kPlayerSize, kPlayerSize};
+    float railLength = 0;
+    bool hitPlayer = false;
+    for (float distance = 3.0f;
+         distance <= maximumLength; distance += 3.0f) {
+        const Rect probe{
+            startX + dx * distance - width * 0.5f,
+            startY + dy * distance - width * 0.5f, width, width};
+        if (HitsWall(probe) || HitsShield(probe)) break;
+        railLength = distance;
+        if (!hitPlayer && Overlaps(probe, player)) {
+            playerHealth = std::max(
+                0, playerHealth - type.contactDamage);
+            PlaySoundEffect(Sound::HitHurt);
+            hitPlayer = true;
+        }
+    }
+    enemyRails.push_back(
+        {startX, startY, dx, dy, railLength, width,
+         kRailFlashDuration});
+    PlaySoundEffect(Sound::LaserShoot);
+}
+
+void UpdateShooter(
+    Enemy& enemy, const EnemyType& type, int activeRoom,
+    const std::vector<int>& roomDistances, float dt) {
+    if (enemy.phase == EnemyPhase::Recover) {
+        enemy.phaseTimer -= dt;
+        if (enemy.phaseTimer <= 0) enemy.phase = EnemyPhase::Approach;
+        return;
+    }
+    if (enemy.phase == EnemyPhase::Windup) {
+        if (enemy.phaseTimer > type.aimLockSeconds) {
+            enemy.targetX = playerX + kPlayerSize * 0.5f;
+            enemy.targetY = playerY + kPlayerSize * 0.5f;
+        }
+        FacePoint(enemy, enemy.targetX, enemy.targetY);
+        enemy.phaseTimer -= dt;
+        if (enemy.phaseTimer <= 0) {
+            FireRail(enemy, type);
+            BeginRecovery(enemy, type);
+        }
+        return;
+    }
+
+    float targetX = playerX + kPlayerSize * 0.5f;
+    float targetY = playerY + kPlayerSize * 0.5f;
+    if (enemy.room != activeRoom) {
+        const int nextRoom =
+            NextRoomToward(enemy.room, roomDistances);
+        if (nextRoom >= 0) {
+            targetX =
+                RoomX(rooms[nextRoom]) + interior.roomSize * 0.5f;
+            targetY =
+                RoomY(rooms[nextRoom]) + interior.roomSize * 0.5f;
+        }
+        FacePoint(enemy, targetX, targetY);
+        MoveEnemyToward(
+            enemy, targetX, targetY, EnemyMovementSpeed(enemy), dt);
+        return;
+    }
+
+    const Rect current = EnemyRect(enemy);
+    const float dx = targetX - CenterX(current);
+    const float dy = targetY - CenterY(current);
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    FacePoint(enemy, targetX, targetY);
+    constexpr float rangeSlack = 30.0f;
+    if (distance > type.preferredDistance + rangeSlack)
+        MoveEnemyToward(
+            enemy, targetX, targetY, EnemyMovementSpeed(enemy), dt);
+    else if (distance < type.preferredDistance - rangeSlack)
+        MoveEnemyAway(
+            enemy, targetX, targetY, EnemyMovementSpeed(enemy), dt);
+    else {
+        enemy.phase = EnemyPhase::Windup;
+        enemy.phaseTimer = type.windupSeconds;
+        enemy.targetX = targetX;
+        enemy.targetY = targetY;
+    }
+}
+
+void UpdateCharger(
+    Enemy& enemy, const EnemyType& type, int activeRoom,
+    const std::vector<int>& roomDistances, float dt) {
+    if (enemy.phase == EnemyPhase::Recover) {
+        enemy.phaseTimer -= dt;
+        if (enemy.phaseTimer <= 0) enemy.phase = EnemyPhase::Approach;
+        return;
+    }
+    if (enemy.phase == EnemyPhase::Windup) {
+        FacePoint(enemy, enemy.targetX, enemy.targetY);
+        enemy.phaseTimer -= dt;
+        if (enemy.phaseTimer <= 0) {
+            const Rect current = EnemyRect(enemy);
+            float dx = enemy.targetX - CenterX(current);
+            float dy = enemy.targetY - CenterY(current);
+            const float length = std::sqrt(dx * dx + dy * dy);
+            if (length <= 0.01f) {
+                BeginRecovery(enemy, type);
+                return;
+            }
+            enemy.attackX = dx / length;
+            enemy.attackY = dy / length;
+            enemy.attackRemaining = type.attackDistance;
+            enemy.phase = EnemyPhase::Attack;
+        }
+        return;
+    }
+    if (enemy.phase == EnemyPhase::Attack) {
+        const float travel = std::min(
+            enemy.attackRemaining, type.attackSpeed * dt);
+        const int steps =
+            std::max(1, static_cast<int>(std::ceil(travel / 4.0f)));
+        const float step = travel / steps;
+        for (int index = 0; index < steps; ++index) {
+            const float nextX = enemy.x + enemy.attackX * step;
+            const float nextY = enemy.y + enemy.attackY * step;
+            if (!EnemyVisualFitsNetwork(enemy, nextX, nextY)) {
+                BeginRecovery(enemy, type);
+                return;
+            }
+            enemy.x = nextX;
+            enemy.y = nextY;
+            enemy.attackRemaining -= step;
+        }
+        if (enemy.attackRemaining <= 0) BeginRecovery(enemy, type);
+        return;
+    }
+
+    float targetX = playerX + kPlayerSize * 0.5f;
+    float targetY = playerY + kPlayerSize * 0.5f;
+    if (enemy.room != activeRoom) {
+        const int nextRoom =
+            NextRoomToward(enemy.room, roomDistances);
+        if (nextRoom >= 0) {
+            targetX =
+                RoomX(rooms[nextRoom]) + interior.roomSize * 0.5f;
+            targetY =
+                RoomY(rooms[nextRoom]) + interior.roomSize * 0.5f;
+        }
+    }
+    const Rect current = EnemyRect(enemy);
+    const float dx = targetX - CenterX(current);
+    const float dy = targetY - CenterY(current);
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    FacePoint(enemy, targetX, targetY);
+    if (enemy.room == activeRoom && distance <= type.attackRange) {
+        enemy.phase = EnemyPhase::Windup;
+        enemy.phaseTimer = type.windupSeconds;
+        enemy.targetX = targetX;
+        enemy.targetY = targetY;
+    } else {
+        MoveEnemyToward(
+            enemy, targetX, targetY, EnemyMovementSpeed(enemy), dt);
+    }
+}
+
 }  // namespace
 
 void ShootToward(int mouseX, int mouseY) {
     (void)mouseX;
     (void)mouseY;
-    if (playerHealth <= 0) return;
+    if (playerHealth <= 0 || currentMap != "interior") return;
     const float cx = playerX + kPlayerSize * 0.5f;
     const float cy = playerY + kPlayerSize * 0.5f;
     const float dx = AimWorldX() - cx;
@@ -252,7 +495,9 @@ void ShootToward(int mouseX, int mouseY) {
 void LaunchBomb(int mouseX, int mouseY) {
     (void)mouseX;
     (void)mouseY;
-    if (bombCooldown > 0 || playerHealth <= 0) return;
+    if (bombCooldown > 0 || playerHealth <= 0 ||
+        currentMap != "interior")
+        return;
     const float cx = playerX + kPlayerSize * 0.5f;
     const float cy = playerY + kPlayerSize * 0.5f;
     const float dx = AimWorldX() - cx;
@@ -338,6 +583,7 @@ bool EnemyVisualWithinRadius(
 }
 
 void Update(float dt) {
+    if (currentMap != "interior") return;
     bombCooldown = std::max(0.0f, bombCooldown - dt);
     if (playerHealth < kPlayerMaxHealth) {
         healthRegenTimer -= dt;
@@ -391,70 +637,51 @@ void Update(float dt) {
         lastPlayerRoom = activeRoom;
     }
     // Spawner timers pause outside the room occupied by the player.
-    if (!CoreDisabled())
-        for (Spawner& spawner : spawners)
-            if (spawner.health > 0 && spawner.room == activeRoom) {
-                spawner.timer -= dt;
-                if (spawner.timer <= 0) {
-                    SpawnBurst(spawner);
-                    spawner.timer = RandomFloat(
-                        interior.secondsMin, interior.secondsMax);
-                }
+    for (Spawner& spawner : spawners)
+        if (spawner.health > 0 && spawner.room == activeRoom) {
+            spawner.timer -= dt;
+            if (spawner.timer <= 0) {
+                SpawnBurst(spawner);
+                spawner.timer = RandomFloat(
+                    interior.secondsMin, interior.secondsMax);
             }
+        }
 
     const std::vector<int> roomDistances =
         RoomDistancesFrom(activeRoom);
     for (Enemy& enemy : enemies) {
         if (enemy.health <= 0) continue;
-        const Rect facingRect = EnemyRect(enemy);
-        enemy.facing = std::atan2(
-            playerY + kPlayerSize * 0.5f - CenterY(facingRect),
-            playerX + kPlayerSize * 0.5f - CenterX(facingRect)) +
-            kPi * 0.5f;
         if (enemy.activationRemaining > 0) {
             enemy.activationRemaining =
                 std::max(0.0f, enemy.activationRemaining - dt);
             continue;
         }
         const EnemyType& enemyType = types.at(enemy.type);
-        const int speedMaximum = std::max(1, organs[1].maximum);
-        const float normalSpeed =
-            enemyType.speed * speedMaximum * interior.speedUnit;
-        float speedMultiplier = 1.0f;
-        if (enemy.type == interior.archetype) {
-            const float speedSetting = speedMaximum > 1
-                ? static_cast<float>(
-                      std::clamp(organs[1].value, 1, speedMaximum) - 1) /
-                      (speedMaximum - 1)
-                : 1.0f;
-            speedMultiplier = 0.5f + speedSetting * 0.5f;
-        }
-        const float enemySpeed = normalSpeed * speedMultiplier;
-        const Rect current = EnemyRect(enemy);
-        float targetX = playerX + kPlayerSize * 0.5f;
-        float targetY = playerY + kPlayerSize * 0.5f;
-        if (enemy.room != activeRoom) {
-            const int nextRoom =
-                NextRoomToward(enemy.room, roomDistances);
-            if (nextRoom >= 0) {
-                targetX =
-                    RoomX(rooms[nextRoom]) + interior.roomSize * 0.5f;
-                targetY =
-                    RoomY(rooms[nextRoom]) + interior.roomSize * 0.5f;
+        if (enemy.type == "shooter") {
+            UpdateShooter(
+                enemy, enemyType, activeRoom, roomDistances, dt);
+        } else if (enemy.type == "charger") {
+            UpdateCharger(
+                enemy, enemyType, activeRoom, roomDistances, dt);
+        } else {
+            float targetX = playerX + kPlayerSize * 0.5f;
+            float targetY = playerY + kPlayerSize * 0.5f;
+            if (enemy.room != activeRoom) {
+                const int nextRoom =
+                    NextRoomToward(enemy.room, roomDistances);
+                if (nextRoom >= 0) {
+                    targetX =
+                        RoomX(rooms[nextRoom]) +
+                        interior.roomSize * 0.5f;
+                    targetY =
+                        RoomY(rooms[nextRoom]) +
+                        interior.roomSize * 0.5f;
+                }
             }
-        }
-        const float dx = targetX - CenterX(current);
-        const float dy = targetY - CenterY(current);
-        const float distance = std::sqrt(dx * dx + dy * dy);
-        if (distance > 0.01f) {
-            Rect nextX = current;
-            nextX.x += dx / distance * enemySpeed * dt;
-            if (EnemyVisualFitsNetwork(enemy, nextX.x, enemy.y))
-                enemy.x = nextX.x;
-            Rect nextY = EnemyRect(enemy);
-            nextY.y += dy / distance * enemySpeed * dt;
-            if (EnemyVisualFitsNetwork(enemy, enemy.x, nextY.y))
-                enemy.y = nextY.y;
+            FacePoint(enemy, targetX, targetY);
+            MoveEnemyToward(
+                enemy, targetX, targetY,
+                EnemyMovementSpeed(enemy), dt);
         }
         const Rect moved = EnemyRect(enemy);
         const int movedColumn = static_cast<int>(
@@ -551,20 +778,39 @@ void Update(float dt) {
                 return explosion.timeRemaining <= 0;
             }),
         explosions.end());
+    for (EnemyRail& rail : enemyRails)
+        rail.timeRemaining -= dt;
+    enemyRails.erase(
+        std::remove_if(
+            enemyRails.begin(), enemyRails.end(),
+            [](const EnemyRail& rail) {
+                return rail.timeRemaining <= 0;
+            }),
+        enemyRails.end());
 
     enemies.erase(
         std::remove_if(
             enemies.begin(), enemies.end(),
-            [&](const Enemy& enemy) {
+            [&](Enemy& enemy) {
                 if (enemy.health <= 0) return true;
                 if (enemy.activationRemaining <= 0 &&
                     enemy.room == activeRoom &&
                     EnemyVisualOverlaps(
                         enemy, {playerX, playerY,
                                 kPlayerSize, kPlayerSize})) {
+                    const EnemyType& type = types.at(enemy.type);
+                    if (enemy.type == "shooter") return false;
+                    if (enemy.type == "charger") {
+                        if (enemy.phase != EnemyPhase::Attack)
+                            return false;
+                        playerHealth = std::max(
+                            0, playerHealth - type.contactDamage);
+                        PlaySoundEffect(Sound::HitHurt);
+                        BeginRecovery(enemy, type);
+                        return false;
+                    }
                     playerHealth = std::max(
-                        0, playerHealth -
-                               types.at(enemy.type).contactDamage);
+                        0, playerHealth - type.contactDamage);
                     PlaySoundEffect(Sound::HitHurt);
                     return true;
                 }

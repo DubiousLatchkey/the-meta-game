@@ -13,8 +13,12 @@
   values color its walls.
 - Visible Lua text is composed from lists of shared mutable word-table references.
   Sprite RGB, word bytes, and organ values persist through `mutations.lua`.
-- Procedural room spawners are active only while the player occupies their room;
-  the farthest core room controls global spawning and the win state.
+- Procedural room spawners are active only while the player occupies their room.
+  Every room guarantees one current-archetype spawner; additional spawners use
+  the spawn percentage, then Lua weights for triangle, charger, and shooter
+  output. The farthest spawn room exposes the persistent level selector at zero.
+- Enemy stats, sprites, burst sizes, spawn weights, and special-attack tuning
+  live in Lua. C++ owns charger/shooter state machines and rail collision.
 - Keep game logic/data in Lua where practical and keep the C++ host stable enough
   to recover corrupt Lua state.
 - Keep project-authored code dedicated to the public domain under the Unlicense.

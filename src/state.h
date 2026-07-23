@@ -30,6 +30,7 @@ inline constexpr float kBombRadius = 52.5f;
 inline constexpr float kBombCooldownDuration = 3.0f;
 inline constexpr float kExplosionDuration = 0.22f;
 inline constexpr float kEnemyFadeDuration = 0.125f;
+inline constexpr float kRailFlashDuration = 0.12f;
 inline constexpr float kExitWidth = 150.0f;
 inline constexpr float kWall = 20.0f;
 inline constexpr float kPi = 3.1415926535f;
@@ -44,6 +45,16 @@ struct EnemyType {
     float speed = 1.0f;
     int contactDamage = 1;
     int pixelScale = 7;
+    int burstMin = 1;
+    int burstMax = 1;
+    int spawnWeight = 0;
+    float preferredDistance = 0;
+    float attackRange = 0;
+    float windupSeconds = 0;
+    float aimLockSeconds = 0;
+    float attackCooldown = 0;
+    float attackDistance = 0;
+    float attackSpeed = 0;
     std::vector<std::vector<Pixel>> sprite;
 };
 struct Word {
@@ -56,6 +67,7 @@ struct Organ {
     int valueWord = -1;
     int value = 1;
     int maximum = 1;
+    int decrement = 1;
     int room = -1;
 };
 struct Interior {
@@ -78,9 +90,18 @@ struct Room {
 struct Spawner {
     int room = -1;
     std::string enemyType;
+    int typeRoll = 0;
+    int alternateRoll = 0;
+    bool guaranteedArchetype = false;
     float x = 0, y = 0;
     int health = 5;
     float timer = 2.0f;
+};
+enum class EnemyPhase {
+    Approach,
+    Windup,
+    Attack,
+    Recover,
 };
 struct Enemy {
     int room = -1;
@@ -90,6 +111,11 @@ struct Enemy {
     int maxHealth = 1;
     float activationRemaining = 0;
     float facing = 0;
+    EnemyPhase phase = EnemyPhase::Approach;
+    float phaseTimer = 0;
+    float targetX = 0, targetY = 0;
+    float attackX = 0, attackY = 0;
+    float attackRemaining = 0;
 };
 struct Projectile {
     float x, y, vx, vy, distance;
@@ -99,6 +125,9 @@ struct Bomb {
 };
 struct Explosion {
     float x, y, timeRemaining;
+};
+struct EnemyRail {
+    float x, y, dx, dy, length, width, timeRemaining;
 };
 struct Rect {
     float x, y, width, height;
@@ -112,6 +141,7 @@ struct TextBox {
     int word = -1;
     int organ = -1;
     bool value = false;
+    bool levelValue = false;
 };
 struct ShieldBlock {
     Rect rect;
@@ -142,8 +172,14 @@ extern std::vector<Enemy> enemies;
 extern std::vector<Projectile> projectiles;
 extern std::vector<Bomb> bombs;
 extern std::vector<Explosion> explosions;
+extern std::vector<EnemyRail> enemyRails;
 extern std::vector<TextBox> textBoxes;
 extern std::vector<ShieldBlock> shieldBlocks;
+extern int levelNumber;
+extern int levelValueWord;
+extern std::vector<int> levelLabel;
+extern std::map<int, std::string> levelMaps;
+extern std::string currentMap;
 extern float playerX, playerY;
 extern int playerHealth;
 extern bool keys[4];

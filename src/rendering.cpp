@@ -102,6 +102,45 @@ void DrawWorldRectAlpha(
         static_cast<int>(rect.height), color, alpha);
 }
 
+void DrawWorldLine(
+    float x, float y, float dx, float dy, float length, float width,
+    std::uint32_t color, bool dotted) {
+    const float spacing = dotted ? 16.0f : std::max(2.0f, width * 0.5f);
+    const float mark = dotted ? 5.0f : spacing + 1.0f;
+    for (float distance = 0; distance < length; distance += spacing)
+        DrawWorldRect(
+            {x + dx * distance - width * 0.5f,
+             y + dy * distance - width * 0.5f,
+             std::max(width, std::abs(dx) * mark),
+             std::max(width, std::abs(dy) * mark)},
+            color);
+}
+
+void DrawChargerWindup(const Enemy& enemy) {
+    if (enemy.type != "charger" ||
+        enemy.phase != EnemyPhase::Windup)
+        return;
+    const EnemyType& type = types.at(enemy.type);
+    if (type.windupSeconds <= 0) return;
+    const Rect rect = EnemyRect(enemy);
+    const float centerX = CenterX(rect);
+    const float centerY = CenterY(rect);
+    const float remaining = std::clamp(
+        enemy.phaseTimer / type.windupSeconds, 0.0f, 1.0f);
+    const float radius = 18.0f + remaining * 55.0f;
+    constexpr int particleCount = 10;
+    for (int index = 0; index < particleCount; ++index) {
+        const float angle =
+            index * (kPi * 2.0f / particleCount) +
+            (1.0f - remaining) * 0.7f;
+        DrawWorldRect(
+            {centerX + std::cos(angle) * radius - 2.0f,
+             centerY + std::sin(angle) * radius - 2.0f,
+             4.0f, 4.0f},
+            0x00FF9A38);
+    }
+}
+
 void DrawEnemySprite(const Enemy& enemy) {
     const EnemyType& type = types.at(enemy.type);
     const int scale = EnemyScale(enemy);
@@ -111,8 +150,13 @@ void DrawEnemySprite(const Enemy& enemy) {
     const float width = static_cast<float>(columns * scale);
     const float height =
         static_cast<float>(type.sprite.size() * scale);
-    const float centerX = enemy.x + width * 0.5f;
-    const float centerY = enemy.y + height * 0.5f;
+    float centerX = enemy.x + width * 0.5f;
+    float centerY = enemy.y + height * 0.5f;
+    if (enemy.type == "charger" &&
+        enemy.phase == EnemyPhase::Windup) {
+        centerX += std::sin(enemy.phaseTimer * 110.0f) * 2.0f;
+        centerY += std::cos(enemy.phaseTimer * 137.0f) * 2.0f;
+    }
     const float cosine = std::cos(enemy.facing);
     const float sine = std::sin(enemy.facing);
     const float extentX =
@@ -241,12 +285,34 @@ void DestroyBackBuffer() {
 }
 
 void Render(HWND window) {
-    if (!buffer.pixels || rooms.empty()) return;
+    if (!buffer.pixels) return;
     std::fill(
         buffer.pixels,
         buffer.pixels +
             static_cast<std::size_t>(buffer.width) * buffer.height,
         0x0004070B);
+    if (currentMap != "interior") {
+        std::vector<int> line = levelLabel;
+        if (levelValueWord >= 0) line.push_back(levelValueWord);
+        const auto placeholder = phrases.find("placeholder");
+        if (placeholder != phrases.end())
+            line.insert(
+                line.end(), placeholder->second.begin(),
+                placeholder->second.end());
+        const int width = PhraseWidth(line);
+        DrawPhrase(
+            line, (buffer.width - width) * 0.5f,
+            buffer.height * 0.5f -
+                text_renderer::kGlyphHeight * 0.5f,
+            0x0000FFFF, false);
+        HDC target = GetDC(window);
+        BitBlt(
+            target, 0, 0, buffer.width, buffer.height,
+            buffer.dc, 0, 0, SRCCOPY);
+        ReleaseDC(window, target);
+        return;
+    }
+    if (rooms.empty()) return;
     const EnemyType& giant = types.at(interior.archetype);
     for (const Room& room : rooms) {
         Rect floor{
@@ -304,9 +370,13 @@ void Render(HWND window) {
             box.value ? 0x00FFFFFF : 0x00B8C8D8, true);
     for (const Spawner& spawner : spawners) {
         if (spawner.health <= 0) continue;
-        const std::uint32_t spawnerColor =
-            spawner.enemyType == interior.alternateEnemy
-                ? 0x004C72D8 : 0x00A02050;
+        std::uint32_t spawnerColor = 0x00A02050;
+        if (spawner.enemyType == "triangle")
+            spawnerColor = 0x004C72D8;
+        else if (spawner.enemyType == "charger")
+            spawnerColor = 0x00E07828;
+        else if (spawner.enemyType == "shooter")
+            spawnerColor = 0x00B048D0;
         DrawWorldRect(
             {spawner.x, spawner.y, 30, 30}, spawnerColor);
         DrawWorldRect(
@@ -314,6 +384,30 @@ void Render(HWND window) {
              static_cast<float>(spawner.health * 4), 5},
             0x00FFFFFF);
     }
+    for (const Enemy& enemy : enemies) {
+        if (enemy.type != "shooter" ||
+            enemy.phase != EnemyPhase::Windup)
+            continue;
+        const Rect source = EnemyRect(enemy);
+        const float startX = CenterX(source);
+        const float startY = CenterY(source);
+        float dx = enemy.targetX - startX;
+        float dy = enemy.targetY - startY;
+        const float length = std::sqrt(dx * dx + dy * dy);
+        if (length <= 0.01f) continue;
+        dx /= length;
+        dy /= length;
+        DrawWorldLine(
+            startX, startY, dx, dy,
+            types.at(enemy.type).attackDistance, 3.0f,
+            0x00FF70FF, true);
+    }
+    for (const EnemyRail& rail : enemyRails)
+        DrawWorldLine(
+            rail.x, rail.y, rail.dx, rail.dy, rail.length, rail.width,
+            0x00FFFFFF, false);
+    for (const Enemy& enemy : enemies)
+        DrawChargerWindup(enemy);
     for (const Enemy& enemy : enemies)
         DrawEnemySprite(enemy);
     DrawWorldRect(
@@ -373,16 +467,6 @@ void Render(HWND window) {
         buffer.width - 70, 18,
         static_cast<int>(54 * bombReady), 7,
         bombCooldown <= 0 ? 0x0000FFFF : 0x00006688);
-    if (CoreDisabled()) {
-        const auto victory = phrases.find("victory");
-        if (victory != phrases.end()) {
-            const int width = PhraseWidth(victory->second);
-            DrawPhrase(
-                victory->second, (buffer.width - width) * 0.5f,
-                buffer.height * 0.18f, 0x0000FFFF, false);
-        }
-    }
-
     HDC target = GetDC(window);
     BitBlt(
         target, 0, 0, buffer.width, buffer.height,

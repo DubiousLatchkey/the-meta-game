@@ -117,6 +117,42 @@ bool LoadWorldScript(const std::filesystem::path& path) {
     }
     lua_pop(lua, 1);
 
+    int loadedLevelNumber = 10;
+    int loadedLevelValueWord = -1;
+    std::vector<int> loadedLevelLabel;
+    std::map<int, std::string> loadedLevelMaps;
+    lua_getfield(lua, root, "level");
+    if (lua_istable(lua, -1)) {
+        loadedLevelNumber =
+            std::max(0, IntegerField(lua, -1, "value", 10));
+        lua_getfield(lua, -1, "label");
+        if (lua_istable(lua, -1))
+            loadedLevelLabel =
+                ReadWordList(lua, -1, wordPointers);
+        lua_pop(lua, 1);
+        lua_getfield(lua, -1, "value_text");
+        if (lua_istable(lua, -1)) {
+            const std::vector<int> valueText =
+                ReadWordList(lua, -1, wordPointers);
+            if (!valueText.empty())
+                loadedLevelValueWord = valueText.front();
+        }
+        lua_pop(lua, 1);
+    }
+    lua_pop(lua, 1);
+    lua_getfield(lua, root, "levels");
+    if (lua_istable(lua, -1)) {
+        lua_pushnil(lua);
+        while (lua_next(lua, -2) != 0) {
+            if (lua_isinteger(lua, -2) && lua_istable(lua, -1))
+                loadedLevelMaps[
+                    static_cast<int>(lua_tointeger(lua, -2))] =
+                    StringField(lua, -1, "map");
+            lua_pop(lua, 1);
+        }
+    }
+    lua_pop(lua, 1);
+
     std::map<std::string, EnemyType> loadedTypes;
     lua_getfield(lua, root, "enemies");
     if (!lua_istable(lua, -1)) { lua_close(lua); return false; }
@@ -133,6 +169,27 @@ bool LoadWorldScript(const std::filesystem::path& path) {
                 std::max(0, IntegerField(lua, -1, "contact_damage", 1));
             type.pixelScale =
                 std::clamp(IntegerField(lua, -1, "pixel_scale", 7), 2, 20);
+            type.burstMin =
+                std::clamp(IntegerField(lua, -1, "burst_min", 1), 1, 10);
+            type.burstMax = std::clamp(
+                IntegerField(lua, -1, "burst_max", type.burstMin),
+                type.burstMin, 12);
+            type.spawnWeight =
+                std::clamp(IntegerField(lua, -1, "spawn_weight", 0), 0, 100);
+            type.preferredDistance = std::max(
+                0.0f, NumberField(lua, -1, "preferred_distance", 0));
+            type.attackRange = std::max(
+                0.0f, NumberField(lua, -1, "attack_range", 0));
+            type.windupSeconds = std::max(
+                0.0f, NumberField(lua, -1, "windup_seconds", 0));
+            type.aimLockSeconds = std::max(
+                0.0f, NumberField(lua, -1, "aim_lock_seconds", 0));
+            type.attackCooldown = std::max(
+                0.0f, NumberField(lua, -1, "attack_cooldown", 0));
+            type.attackDistance = std::max(
+                0.0f, NumberField(lua, -1, "attack_distance", 0));
+            type.attackSpeed = std::max(
+                0.0f, NumberField(lua, -1, "attack_speed", 0));
             lua_getfield(lua, -1, "sprite");
             if (lua_istable(lua, -1)) {
                 const int rowCount = static_cast<int>(lua_rawlen(lua, -1));
@@ -208,7 +265,7 @@ bool LoadWorldScript(const std::filesystem::path& path) {
         std::max(0.0f, NumberField(lua, -1, "speed_unit", 4.0f));
     lua_getfield(lua, -1, "organs");
     const std::array<const char*, 5> organNames{
-        {"size", "speed", "health", "shield", "core"}};
+        {"size", "speed", "health", "shield", "spawn"}};
     if (lua_istable(lua, -1)) {
         for (const char* name : organNames) {
             lua_getfield(lua, -1, name);
@@ -219,6 +276,8 @@ bool LoadWorldScript(const std::filesystem::path& path) {
                     std::max(0, IntegerField(lua, -1, "value", 1));
                 organ.maximum = std::max(
                     1, IntegerField(lua, -1, "maximum", organ.value));
+                organ.decrement = std::max(
+                    1, IntegerField(lua, -1, "decrement", 1));
                 lua_getfield(lua, -1, "label");
                 if (lua_istable(lua, -1))
                     organ.label = ReadWordList(lua, -1, wordPointers);
@@ -240,13 +299,24 @@ bool LoadWorldScript(const std::filesystem::path& path) {
 
     if (!loadedTypes.count(loadedInterior.archetype) ||
         !loadedTypes.count(loadedInterior.alternateEnemy) ||
-        loadedOrgans.size() != 5) return false;
+        !loadedTypes.count("charger") ||
+        !loadedTypes.count("shooter") ||
+        loadedOrgans.size() != 5 ||
+        loadedLevelValueWord < 0 || loadedLevelMaps.empty())
+        return false;
     words = std::move(loadedWords);
     wordIds = std::move(loadedWordIds);
     phrases = std::move(loadedPhrases);
     types = std::move(loadedTypes);
     interior = std::move(loadedInterior);
     organs = std::move(loadedOrgans);
+    levelNumber = loadedLevelNumber;
+    levelValueWord = loadedLevelValueWord;
+    levelLabel = std::move(loadedLevelLabel);
+    levelMaps = std::move(loadedLevelMaps);
+    const auto selectedMap = levelMaps.find(levelNumber);
+    currentMap = selectedMap != levelMaps.end()
+        ? selectedMap->second : "placeholder";
     return true;
 }
 
@@ -320,8 +390,18 @@ void ApplyMutations() {
             for (Organ& organ : organs)
                 if (organ.id == id)
                     organ.value = std::clamp(value, 0, organ.maximum);
+        } else if (sscanf_s(
+                       line.c_str(), "set_level(%d)", &value) == 1) {
+            levelNumber = std::max(0, value);
         }
     }
+    if (levelValueWord >= 0) {
+        const std::string value = std::to_string(levelNumber);
+        words[levelValueWord].bytes.assign(value.begin(), value.end());
+    }
+    const auto selectedMap = levelMaps.find(levelNumber);
+    currentMap = selectedMap != levelMaps.end()
+        ? selectedMap->second : "placeholder";
 }
 
 void AddSplitHorizontal(
@@ -409,7 +489,7 @@ void GenerateRooms() {
     std::sort(order.begin(), order.end(),
         [&](int a, int b) { return distances[a] < distances[b]; });
     for (int i = 0; i < static_cast<int>(organs.size()); ++i) {
-        const float fraction = organs[i].id == "core"
+        const float fraction = organs[i].id == "spawn"
             ? 1.0f
             : static_cast<float>(i + 1) / organs.size();
         int position =
@@ -434,7 +514,9 @@ void GenerateRooms() {
 void GenerateSpawners() {
     spawners.clear();
     random.seed(static_cast<unsigned>(interior.seed));
-    int spawnerIndex = 0;
+    const int spawnOrgan = OrganIndex("spawn");
+    const int spawnPercentage = spawnOrgan >= 0
+        ? std::clamp(organs[spawnOrgan].value, 0, 100) : 0;
     for (int roomIndex = 0;
          roomIndex < static_cast<int>(rooms.size()); ++roomIndex) {
         const Room& room = rooms[roomIndex];
@@ -469,13 +551,24 @@ void GenerateSpawners() {
                 if (HitsShield(candidate)) clear = false;
                 if (clear) break;
             }
-            const std::string& enemyType = (spawnerIndex++ % 2 == 0)
-                ? interior.enemy : interior.alternateEnemy;
-            spawners.push_back(
-                {roomIndex, enemyType, x, y, 5,
-                 RandomFloat(interior.secondsMin, interior.secondsMax)});
+            Spawner spawner;
+            spawner.room = roomIndex;
+            spawner.typeRoll = RandomInt(0, 99);
+            spawner.alternateRoll = RandomInt(0, 99);
+            spawner.guaranteedArchetype = i == 0;
+            spawner.enemyType =
+                spawner.guaranteedArchetype ||
+                        spawner.typeRoll < spawnPercentage
+                    ? interior.enemy : interior.alternateEnemy;
+            spawner.x = x;
+            spawner.y = y;
+            spawner.health = 5;
+            spawner.timer =
+                RandomFloat(interior.secondsMin, interior.secondsMax);
+            spawners.push_back(std::move(spawner));
         }
     }
+    UpdateSpawnerTypes();
 }
 
 void ResetPlay() {
@@ -483,10 +576,13 @@ void ResetPlay() {
     projectiles.clear();
     bombs.clear();
     explosions.clear();
+    enemyRails.clear();
     playerHealth = kPlayerMaxHealth;
     bombCooldown = 0;
     healthRegenTimer = kHealthRegenSeconds;
     lastPlayerRoom = -1;
+    SelectCurrentLevel();
+    if (currentMap != "interior") return;
     GenerateRooms();
     BuildWorldTextBoxes();
     BuildShields();
@@ -501,6 +597,7 @@ void SaveMutations() {
     output << "local function set_pixel(enemy,row,column,r,g,b) end\n";
     output << "local function set_word(id,hex) end\n";
     output << "local function set_organ(id,value) end\n";
+    output << "local function set_level(value) end\n";
     for (const auto& [id, type] : types)
         for (std::size_t row = 0; row < type.sprite.size(); ++row)
             for (std::size_t column = 0;
@@ -518,6 +615,7 @@ void SaveMutations() {
     for (const Organ& organ : organs)
         output << "set_organ(\"" << organ.id << "\", " << organ.value
                << ")\n";
+    output << "set_level(" << levelNumber << ")\n";
 }
 
 int RoomIndexAt(int row, int column) {
@@ -608,6 +706,27 @@ void BuildWorldTextBoxes() {
                  organ.valueWord, index, true});
         }
     }
+    const int spawn = OrganIndex("spawn");
+    if (spawn >= 0 && organs[spawn].value == 0 &&
+        organs[spawn].room >= 0 && levelValueWord >= 0) {
+        const Room& room = rooms[organs[spawn].room];
+        const float center =
+            RoomX(room) + interior.roomSize * 0.5f;
+        const int labelWidth = PhraseWidth(levelLabel);
+        const float y =
+            RoomY(room) + interior.roomSize * 0.64f;
+        AddPhraseBoxes(
+            levelLabel, center - labelWidth * 0.5f, y);
+        const int width = text_renderer::MeasureWidth(
+            words[levelValueWord].bytes.size());
+        textBoxes.push_back(
+            {{center - width * 0.5f,
+              y + text_renderer::kGlyphHeight +
+                  text_renderer::kGlyphAdvance,
+              static_cast<float>(width),
+              static_cast<float>(text_renderer::kGlyphHeight)},
+             levelValueWord, -1, false, true});
+    }
 }
 
 int OrganIndex(const std::string& id) {
@@ -615,6 +734,55 @@ int OrganIndex(const std::string& id) {
          index < static_cast<int>(organs.size()); ++index)
         if (organs[index].id == id) return index;
     return -1;
+}
+
+void UpdateSpawnerTypes() {
+    const int spawn = OrganIndex("spawn");
+    const int percentage = spawn >= 0
+        ? std::clamp(organs[spawn].value, 0, 100) : 0;
+    int totalWeight = 0;
+    for (const auto& [id, type] : types)
+        if (id != interior.archetype)
+            totalWeight += type.spawnWeight;
+    for (Spawner& spawner : spawners) {
+        if (spawner.guaranteedArchetype ||
+            spawner.typeRoll < percentage) {
+            spawner.enemyType = interior.enemy;
+            continue;
+        }
+        int selection = totalWeight > 0
+            ? spawner.alternateRoll * totalWeight / 100 : 0;
+        spawner.enemyType = interior.alternateEnemy;
+        for (const auto& [id, type] : types) {
+            if (id == interior.archetype || type.spawnWeight <= 0)
+                continue;
+            if (selection < type.spawnWeight) {
+                spawner.enemyType = id;
+                break;
+            }
+            selection -= type.spawnWeight;
+        }
+    }
+}
+
+void SelectCurrentLevel() {
+    const auto selectedMap = levelMaps.find(levelNumber);
+    currentMap = selectedMap != levelMaps.end()
+        ? selectedMap->second : "placeholder";
+    if (levelValueWord >= 0) {
+        const std::string value = std::to_string(levelNumber);
+        words[levelValueWord].bytes.assign(value.begin(), value.end());
+    }
+    if (currentMap != "interior") {
+        enemies.clear();
+        projectiles.clear();
+        bombs.clear();
+        explosions.clear();
+        enemyRails.clear();
+        spawners.clear();
+        shieldBlocks.clear();
+        textBoxes.clear();
+    }
 }
 
 void BuildShields() {
@@ -675,9 +843,9 @@ void UpdateValueWord(Organ& organ) {
     words[organ.valueWord].bytes.assign(value.begin(), value.end());
 }
 
-bool CoreDisabled() {
-    const int core = OrganIndex("core");
-    return core >= 0 && organs[core].value == 0;
+bool SpawnPercentageZero() {
+    const int spawn = OrganIndex("spawn");
+    return spawn >= 0 && organs[spawn].value == 0;
 }
 
 bool ReloadWorld(bool reset) {

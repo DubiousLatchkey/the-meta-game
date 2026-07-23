@@ -18,7 +18,9 @@ void BuildWorldTextBoxes();
 void BuildShields();
 bool HitsShield(const Rect& rectangle);
 int OrganIndex(const std::string& id);
+void UpdateSpawnerTypes();
+void SelectCurrentLevel();
 void UpdateValueWord(Organ& organ);
-bool CoreDisabled();
+bool SpawnPercentageZero();
 
 }  // namespace game
