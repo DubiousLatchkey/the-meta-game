@@ -1,0 +1,6 @@
+/build/
+/release/game/
+*.exe
+*.obj
+*.lib
+third_party/lua-*.tar.gz
