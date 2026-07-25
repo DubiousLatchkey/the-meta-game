@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -16,6 +17,18 @@ struct Surface {
     int width;
     int height;
 };
+
+struct GlyphPixel {
+    bool occupied = false;
+    std::array<int, 3> rgb{};
+};
+using Glyph = std::array<std::array<GlyphPixel, 5>, 7>;
+using GlyphAtlas = std::array<Glyph, 256>;
+
+GlyphAtlas FallbackGlyphAtlas();
+void SetGlyphAtlas(const GlyphAtlas& glyphs);
+const Glyph& GetGlyph(std::uint8_t value);
+Glyph& MutableGlyph(std::uint8_t value);
 
 int MeasureWidth(std::size_t characterCount);
 

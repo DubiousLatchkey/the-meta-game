@@ -1,16 +1,22 @@
 #include "rendering.h"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <iomanip>
+#include <sstream>
 
+#include "audio.h"
 #include "gameplay.h"
+#include "rendering_internal.h"
+#include "roguelite.h"
 #include "state.h"
 #include "text_renderer.h"
 #include "world.h"
 
 namespace game {
-namespace {
 
 void DrawRectangle(
     int x, int y, int width, int height, std::uint32_t color) {
@@ -68,7 +74,7 @@ void DrawRectangleAlpha(
     }
 }
 
-std::uint32_t CompositeColor(const Pixel& pixel, int divisor = 1) {
+std::uint32_t CompositeColor(const Pixel& pixel, int divisor) {
     return static_cast<std::uint32_t>(
                (pixel.rgb[0] / divisor) << 16) |
            static_cast<std::uint32_t>(
@@ -93,6 +99,44 @@ void DrawWorldRect(const Rect& rect, std::uint32_t color) {
         static_cast<int>(rect.height), color);
 }
 
+void DrawArenaQuad(
+    const std::array<ArenaMotifPoint, 4>& worldCorners,
+    std::uint32_t color) {
+    std::array<ArenaMotifPoint, 4> corners = worldCorners;
+    float left = static_cast<float>(buffer.width);
+    float top = static_cast<float>(buffer.height);
+    float right = 0, bottom = 0;
+    for (ArenaMotifPoint& corner : corners) {
+        corner.x -= CameraX();
+        corner.y -= CameraY();
+        left = std::min(left, corner.x);
+        top = std::min(top, corner.y);
+        right = std::max(right, corner.x);
+        bottom = std::max(bottom, corner.y);
+    }
+    const int firstX = std::max(0, static_cast<int>(std::floor(left)));
+    const int firstY = std::max(0, static_cast<int>(std::floor(top)));
+    const int lastX = std::min(
+        buffer.width, static_cast<int>(std::ceil(right)));
+    const int lastY = std::min(
+        buffer.height, static_cast<int>(std::ceil(bottom)));
+    for (int y = firstY; y < lastY; ++y)
+        for (int x = firstX; x < lastX; ++x) {
+            bool positive = false, negative = false;
+            for (std::size_t edge = 0; edge < corners.size(); ++edge) {
+                const ArenaMotifPoint& a = corners[edge];
+                const ArenaMotifPoint& b =
+                    corners[(edge + 1) % corners.size()];
+                const float cross = (b.x - a.x) * (y + 0.5f - a.y) -
+                    (b.y - a.y) * (x + 0.5f - a.x);
+                positive = positive || cross > 0;
+                negative = negative || cross < 0;
+            }
+            if (!(positive && negative))
+                buffer.pixels[y * buffer.width + x] = color;
+        }
+}
+
 void DrawWorldRectAlpha(
     const Rect& rect, std::uint32_t color, float alpha) {
     DrawRectangleAlpha(
@@ -100,6 +144,36 @@ void DrawWorldRectAlpha(
         static_cast<int>(rect.y - CameraY()),
         static_cast<int>(rect.width),
         static_cast<int>(rect.height), color, alpha);
+}
+
+void DrawPlayer() {
+    if (playerInvincibility > 0 &&
+        static_cast<int>(playerInvincibility * 12.0f) % 2 == 0)
+        return;
+    const auto found = types.find("player");
+    if (found == types.end() || found->second.sprite.empty()) return;
+    const auto& sprite = found->second.sprite;
+    std::size_t columns = 0;
+    for (const auto& row : sprite) columns = std::max(columns, row.size());
+    const std::size_t units = std::max(columns, sprite.size());
+    if (units == 0) return;
+    const float scale = static_cast<float>(kPlayerRenderSize) / units;
+    const float originX = playerX + kPlayerSize * 0.5f -
+        columns * scale * 0.5f;
+    const float originY = playerY + kPlayerSize * 0.5f -
+        sprite.size() * scale * 0.5f;
+    for (std::size_t row = 0; row < sprite.size(); ++row)
+        for (std::size_t column = 0;
+             column < sprite[row].size(); ++column) {
+            const Pixel& pixel = sprite[row][column];
+            if (!pixel.occupied) continue;
+            std::uint32_t color = CompositeColor(pixel);
+            if (playerHealth <= 0)
+                color = ((color & 0x00FCFCFC) >> 2);
+            DrawWorldRect(
+                {originX + column * scale, originY + row * scale,
+                 scale, scale}, color);
+        }
 }
 
 void DrawWorldLine(
@@ -220,6 +294,217 @@ void DrawWord(
         drawX, drawY, color);
 }
 
+void DrawTextString(
+    const std::string& text, int x, int y, std::uint32_t color) {
+    text_renderer::RenderText(
+        {buffer.pixels, buffer.width, buffer.height},
+        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+        x, y, color);
+}
+
+std::string ShortNumber(float value) {
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(2) << value;
+    return output.str();
+}
+
+// Legacy wall renderers retained for reference. Arena walls are rendered
+// through BuildArenaMotifPixels and DrawArenaQuad instead.
+#if 0
+void DrawSpriteWall(const Rect& wall, std::uint64_t seed) {
+    if (types.empty()) return;
+    auto selected = types.begin();
+    std::advance(
+        selected, static_cast<std::ptrdiff_t>(seed % types.size()));
+    const auto& sprite = selected->second.sprite;
+    if (sprite.empty()) return;
+    const bool horizontal = wall.width >= wall.height;
+    const float scale = 4.0f;
+    std::size_t columns = 0;
+    for (const auto& row : sprite) columns = std::max(columns, row.size());
+    const float motifLength =
+        (horizontal ? columns : sprite.size()) * scale + scale * 2;
+    for (float offset = 0;
+         offset < (horizontal ? wall.width : wall.height);
+         offset += std::max(scale, motifLength))
+        for (std::size_t row = 0; row < sprite.size(); ++row)
+            for (std::size_t column = 0;
+                 column < sprite[row].size(); ++column) {
+                const Pixel& pixel = sprite[row][column];
+                if (!pixel.occupied) continue;
+                DrawWorldRect({
+                    wall.x + (horizontal ? offset + column * scale
+                                         : row * scale),
+                    wall.y + (horizontal ? row * scale
+                                         : offset + column * scale),
+                    scale, scale}, CompositeColor(pixel));
+            }
+}
+
+void DrawGlyphWall(
+    const Rect& wall, std::uint64_t seed,
+    const std::vector<std::uint8_t>& glyphOrder,
+    std::size_t& glyphOrdinal) {
+    const bool horizontal = wall.width >= wall.height;
+    // Seven-pixel cells keep the whole arena perimeter below the 94 printable
+    // glyphs, so a seeded arena never needs to repeat one.
+    constexpr float scale = 7.0f;
+    constexpr float motifLength = 5.0f * scale;
+    for (float offset = 0;
+         offset < (horizontal ? wall.width : wall.height);
+         offset += motifLength + scale) {
+        if (glyphOrdinal >= glyphOrder.size()) break;
+        const std::uint8_t character = glyphOrder[glyphOrdinal++];
+        const std::uint64_t glyphSeed =
+            DeriveRunSeed(seed, 0x474c595048ULL, character);
+        const int rotation = static_cast<int>(
+            DeriveRunSeed(glyphSeed, 0x524f54415445ULL) % 4);
+        const auto& glyph = text_renderer::GetGlyph(character);
+        for (int row = 0; row < 7; ++row)
+            for (int column = 0; column < 5; ++column) {
+                const auto& pixel = glyph[row][column];
+                if (!pixel.occupied) continue;
+                int x = column, y = row;
+                if (rotation == 1) { x = 6 - row; y = column; }
+                if (rotation == 2) { x = 4 - column; y = 6 - row; }
+                if (rotation == 3) { x = row; y = 4 - column; }
+                const std::uint32_t color =
+                    (pixel.rgb[0] << 16) | (pixel.rgb[1] << 8) |
+                    pixel.rgb[2];
+                DrawWorldRect({
+                    wall.x + (horizontal ? offset + x * scale : y * scale),
+                    wall.y + (horizontal ? y * scale : offset + x * scale),
+                    scale, scale}, color);
+            }
+    }
+}
+
+void DrawWaveformWall(
+    const Rect& wall, std::uint64_t seed, std::size_t wallIndex) {
+    const Sound sounds[]{
+        Sound::LaserShoot, Sound::HitEnemy, Sound::HitHurt,
+        Sound::Explosion};
+    const Sound sound = sounds[
+        DeriveRunSeed(seed, 0x534f554e44ULL, wallIndex) % 4];
+    const std::size_t pixelCount = (AudioSampleCount(sound) + 1) / 2;
+    if (pixelCount == 0) return;
+    const bool horizontal = wall.width >= wall.height;
+    const float length = horizontal ? wall.width : wall.height;
+    const float thickness = horizontal ? wall.height : wall.width;
+    const std::size_t points = std::max<std::size_t>(
+        2, static_cast<std::size_t>(length / 3.0f));
+    const std::size_t section = std::min(points, pixelCount);
+    const std::size_t maximumStart = pixelCount - section;
+    const std::size_t start = maximumStart == 0 ? 0 :
+        DeriveRunSeed(seed, 0x53454354494f4eULL, wallIndex) %
+            (maximumStart + 1);
+    for (std::size_t point = 0; point < points; ++point) {
+        const std::size_t sample =
+            start + std::min(section - 1, point * section / points);
+        const float along = static_cast<float>(point) * length / points;
+        const float amplitude =
+            static_cast<float>(AudioPixelAverage(sound, sample)) / 255.0f;
+        const float across = 2.0f + amplitude * std::max(1.0f, thickness - 5);
+        DrawWorldRect({
+            wall.x + (horizontal ? along : across),
+            wall.y + (horizontal ? across : along),
+            horizontal ? 4.0f : 3.0f,
+            horizontal ? 3.0f : 4.0f}, 0x0000D8FF);
+    }
+}
+#endif
+
+void DrawProjectileVisual(const Projectile& projectile) {
+    if ((projectile.rocket && projectile.homing) || projectile.boomerang) {
+        const auto asset = wallAssets.find(
+            projectile.boomerang ? "boomerang" : "homing_rocket");
+        if (asset != wallAssets.end()) {
+            constexpr float scale = 3.0f;
+            const float centerX = projectile.x + projectile.width * 0.5f;
+            const float centerY = projectile.y + projectile.width * 0.5f;
+            const int rotation = projectile.boomerang
+                ? static_cast<int>(projectile.distance / 18.0f) % 4 : 0;
+            for (std::size_t row = 0; row < asset->second.sprite.size(); ++row)
+                for (std::size_t column = 0;
+                     column < asset->second.sprite[row].size(); ++column) {
+                    const Pixel& pixel = asset->second.sprite[row][column];
+                    if (!pixel.occupied) continue;
+                    int x = static_cast<int>(column);
+                    int y = static_cast<int>(row);
+                    if (rotation == 1) {
+                        x = 6 - static_cast<int>(row);
+                        y = static_cast<int>(column);
+                    }
+                    if (rotation == 2) {
+                        x = 4 - static_cast<int>(column);
+                        y = 6 - static_cast<int>(row);
+                    }
+                    if (rotation == 3) {
+                        x = static_cast<int>(row);
+                        y = 4 - static_cast<int>(column);
+                    }
+                    DrawWorldRect(
+                        {centerX + (static_cast<float>(x) - 2.5f) * scale,
+                         centerY + (static_cast<float>(y) - 3.5f) * scale,
+                         scale, scale},
+                        CompositeColor(pixel));
+                }
+            return;
+        }
+    }
+    DrawWorldRect(
+        {projectile.x, projectile.y,
+         projectile.width, projectile.width},
+        0x00FFFFFF);
+}
+
+void DrawPortalEffect(const Rect& portal, const char* assetId) {
+    static const auto started = std::chrono::steady_clock::now();
+    const float time = std::chrono::duration<float>(
+        std::chrono::steady_clock::now() - started).count();
+    const float pulse = 1.0f + 0.08f * std::sin(time * 2.0f);
+    const float centerX = CenterX(portal);
+    const float centerY = CenterY(portal);
+    const auto asset = wallAssets.find(assetId);
+    if (asset != wallAssets.end())
+        {
+        std::size_t columns = 0;
+        for (const auto& row : asset->second.sprite)
+            columns = std::max(columns, row.size());
+        const float pixelSize = std::min(
+            portal.width / std::max<std::size_t>(1, columns),
+            portal.height / std::max<std::size_t>(
+                1, asset->second.sprite.size()));
+        for (std::size_t row = 0; row < asset->second.sprite.size(); ++row)
+            for (std::size_t column = 0;
+                 column < asset->second.sprite[row].size(); ++column) {
+                const Pixel& pixel = asset->second.sprite[row][column];
+                if (!pixel.occupied) continue;
+                const float size = pixelSize * pulse;
+                DrawWorldRect(
+                    {centerX + (static_cast<float>(column) -
+                        static_cast<float>(columns) * 0.5f) * size,
+                     centerY + (static_cast<float>(row) -
+                        static_cast<float>(asset->second.sprite.size()) *
+                            0.5f) * size,
+                     size, size},
+                    CompositeColor(pixel));
+            }
+        }
+    for (int index = 0; index < 12; ++index) {
+        const float phase = std::fmod(
+            time * 0.38f + static_cast<float>(index) / 12.0f, 1.0f);
+        const float wobble = std::sin(
+            time * 3.0f + static_cast<float>(index) * 2.4f);
+        const float size = 2.0f + phase * 2.0f;
+        DrawWorldRectAlpha(
+            {centerX + wobble * (8.0f + phase * 16.0f) - size * 0.5f,
+             portal.y + portal.height - phase * (portal.height + 32.0f),
+             size, size},
+            0x0000E8FF, 0.2f + phase * 0.65f);
+    }
+}
+
 void DrawPhrase(
     const std::vector<int>& phrase, float x, float y,
     std::uint32_t color, bool world) {
@@ -229,8 +514,6 @@ void DrawPhrase(
              text_renderer::kGlyphAdvance;
     }
 }
-
-}  // namespace
 
 bool InitializeBackBuffer(HWND window) {
     HDC target = GetDC(window);
@@ -291,6 +574,75 @@ void Render(HWND window) {
         buffer.pixels +
             static_cast<std::size_t>(buffer.width) * buffer.height,
         0x0004070B);
+    if (currentMap == "audio") {
+        const LevelRegion* region = CurrentLevelRegion();
+        if (region) {
+            DrawWorldRect(
+                {region->x, region->y, region->width, region->height},
+                0x00070B11);
+            constexpr float border = 20.0f;
+            DrawWorldRect(
+                {region->x, region->y, region->width, border},
+                0x00304858);
+            DrawWorldRect(
+                {region->x, region->y + region->height - border,
+                 region->width, border},
+                0x00304858);
+            DrawWorldRect(
+                {region->x, region->y, border, region->height},
+                0x00304858);
+            DrawWorldRect(
+                {region->x + region->width - border, region->y,
+                 border, region->height},
+                0x00304858);
+        }
+        DrawAudioPanels();
+        for (const TextBox& box : textBoxes)
+            DrawWord(
+                box.word, box.rect.x, box.rect.y,
+                0x00FFFFFF, true);
+        DrawPlayer();
+        for (const Projectile& projectile : projectiles)
+            DrawProjectileVisual(projectile);
+        HDC target = GetDC(window);
+        BitBlt(
+            target, 0, 0, buffer.width, buffer.height,
+            buffer.dc, 0, 0, SRCCOPY);
+        ReleaseDC(window, target);
+        return;
+    }
+    if (currentMap == "glyph") {
+        DrawGlyphArena();
+        DrawPlayer();
+        for (const Projectile& projectile : projectiles)
+            DrawProjectileVisual(projectile);
+        for (const Bomb& bomb : bombs) {
+            DrawWorldRect(
+                {bomb.x - 5, bomb.y - 5, 11, 11}, 0x0000FFFF);
+            DrawWorldRect(
+                {bomb.x - 2, bomb.y - 2, 5, 5}, 0x00FFFFFF);
+        }
+        for (const Explosion& explosion : explosions) {
+            const float progress =
+                explosion.timeRemaining / kExplosionDuration;
+            const float radius =
+                kBombRadius * (1.0f - progress * 0.25f);
+            DrawWorldRect(
+                {explosion.x - radius, explosion.y - radius,
+                 radius * 2, 4},
+                0x0000FFFF);
+            DrawWorldRect(
+                {explosion.x - radius, explosion.y + radius - 4,
+                 radius * 2, 4},
+                0x000066AA);
+        }
+        HDC target = GetDC(window);
+        BitBlt(
+            target, 0, 0, buffer.width, buffer.height,
+            buffer.dc, 0, 0, SRCCOPY);
+        ReleaseDC(window, target);
+        return;
+    }
     if (currentMap != "interior") {
         std::vector<int> line = levelLabel;
         if (levelValueWord >= 0) line.push_back(levelValueWord);
@@ -304,7 +656,7 @@ void Render(HWND window) {
             line, (buffer.width - width) * 0.5f,
             buffer.height * 0.5f -
                 text_renderer::kGlyphHeight * 0.5f,
-            0x0000FFFF, false);
+            0x00FFFFFF, false);
         HDC target = GetDC(window);
         BitBlt(
             target, 0, 0, buffer.width, buffer.height,
@@ -312,7 +664,28 @@ void Render(HWND window) {
         ReleaseDC(window, target);
         return;
     }
-    if (rooms.empty()) return;
+    const bool runMode = run.status == RunStatus::Active ||
+        run.status == RunStatus::Won;
+    const RunNode* runNode = CurrentRunNode();
+    const bool runInterior =
+        runMode && !DebugRoomActive() && !run.mapActive && runNode &&
+        (runNode->type == RunNodeType::Interior ||
+         runNode->type == RunNodeType::PlayerInterior ||
+         runNode->type == RunNodeType::BossInterior);
+    if ((runMode || MainMenuActive()) && !runInterior) {
+        if (run.mapActive)
+            DrawRunMap();
+        else
+            DrawRunArena();
+    } else if (!MainMenuActive()) {
+    if (rooms.empty()) {
+        HDC target = GetDC(window);
+        BitBlt(
+            target, 0, 0, buffer.width, buffer.height,
+            buffer.dc, 0, 0, SRCCOPY);
+        ReleaseDC(window, target);
+        return;
+    }
     const EnemyType& giant = types.at(interior.archetype);
     for (const Room& room : rooms) {
         Rect floor{
@@ -359,15 +732,128 @@ void Render(HWND window) {
                     ChannelColor(channel, pixel.rgb[channel]));
         }
     }
+    }
+    if (runInterior && runNode->type == RunNodeType::PlayerInterior &&
+        (runNode->playerInteriorAlteration < 0 ||
+         runNode->playerInteriorAlterationTimer > 0)) {
+        std::array<int, 9> order{{0,1,2,3,4,5,6,7,8}};
+        std::sort(order.begin(), order.end(), [&](int first, int second) {
+            if (rooms[first].distance != rooms[second].distance)
+                return rooms[first].distance < rooms[second].distance;
+            return DeriveRunSeed(runNode->seed, 0x504c41594552ULL, first) <
+                DeriveRunSeed(runNode->seed, 0x504c41594552ULL, second);
+        });
+        for (int alteration = 0; alteration < 9; ++alteration) {
+            const bool selected =
+                runNode->playerInteriorAlteration == alteration;
+            if (runNode->playerInteriorAlteration >= 0 && !selected)
+                continue;
+            const Rect target = PlayerAlterationTarget(order[alteration]);
+            const bool taken = alteration >= 3 &&
+                playerInteriorState.permanent[alteration - 3];
+            const float fade = !selected ? 1.0f : std::clamp(
+                runNode->playerInteriorAlterationTimer /
+                    kPlayerAlterationFadeSeconds,
+                0.0f, 1.0f);
+            DrawWorldRectAlpha(
+                target, selected ? 0x00502070 :
+                    (taken ? 0x00252A30 : 0x00502070), fade);
+            const int channel =
+                std::clamp(static_cast<int>(255 * fade), 0, 255);
+            const std::uint32_t textColor = static_cast<std::uint32_t>(
+                (channel << 16) | (channel << 8) | channel);
+            const std::string label = PlayerAlterationName(
+                static_cast<PlayerAlteration>(alteration));
+            DrawTextString(label,
+                static_cast<int>(CenterX(target) -
+                    text_renderer::MeasureWidth(label.size()) * 0.5f -
+                    CameraX()),
+                static_cast<int>(CenterY(target) -
+                    text_renderer::kGlyphHeight -
+                    text_renderer::kGlyphAdvance * 0.5f - CameraY()),
+                textColor);
+            const std::string number = std::to_string(PlayerAlterationValue(
+                static_cast<PlayerAlteration>(alteration)));
+            DrawTextString(number,
+                static_cast<int>(CenterX(target) -
+                    text_renderer::MeasureWidth(number.size()) * 0.5f -
+                    CameraX()),
+                static_cast<int>(CenterY(target) +
+                    text_renderer::kGlyphAdvance * 0.5f - CameraY()),
+                textColor);
+        }
+    }
+    if (runInterior && runNode->type == RunNodeType::BossInterior) {
+        for (const BossTurret& turret : run.boss.turrets) {
+            const Rect target = BossTurretTargetRect(turret);
+            if (target.width <= 0) continue;
+            DrawWorldRect(
+                target, turret.alive ? 0x00D04060 : 0x00252A30);
+            const std::string label = turret.alive
+                ? (turret.kind == BossTurretKind::Rocket
+                    ? "ROCKET " + std::to_string(turret.health)
+                    : "BURST " + std::to_string(turret.health))
+                : "DISABLED";
+            DrawTextString(
+                label,
+                static_cast<int>(
+                    CenterX(target) -
+                    text_renderer::MeasureWidth(label.size()) * 0.5f -
+                    CameraX()),
+                static_cast<int>(
+                    CenterY(target) -
+                    text_renderer::kGlyphHeight * 0.5f - CameraY()),
+                0x00FFFFFF);
+        }
+    }
     for (const ShieldBlock& shield : shieldBlocks)
-        if (shield.health > 0)
+        if (shield.health > 0) {
             DrawWorldRectAlpha(
                 shield.rect, 0x0048C8FF,
                 static_cast<float>(shield.health) / 10.0f);
+            const auto asset = wallAssets.find("shield");
+            if (asset != wallAssets.end()) {
+                const float pixel = std::max(3.0f, std::min(
+                    shield.rect.width / 5.0f, shield.rect.height / 7.0f));
+                const float left = CenterX(shield.rect) - pixel * 2.5f;
+                const float top = CenterY(shield.rect) - pixel * 3.5f;
+                for (std::size_t row = 0;
+                     row < asset->second.sprite.size(); ++row)
+                    for (std::size_t column = 0;
+                         column < asset->second.sprite[row].size(); ++column) {
+                        const Pixel& value =
+                            asset->second.sprite[row][column];
+                        if (value.occupied)
+                            DrawWorldRect(
+                                {left + column * pixel, top + row * pixel,
+                                 pixel, pixel},
+                                CompositeColor(value));
+                    }
+            }
+        }
     for (const TextBox& box : textBoxes)
         DrawWord(
             box.word, box.rect.x, box.rect.y,
-            box.value ? 0x00FFFFFF : 0x00B8C8D8, true);
+            0x00FFFFFF, true);
+    if (runInterior)
+        for (const RunPortal& portal : runNode->portals) {
+            if (!portal.active) continue;
+            const Rect trigger = ExitPortalRect();
+            const RunNode* destination =
+                GetRunNode(run, portal.destination);
+            const char* assetId = !destination ? "portal_arena" :
+                destination->type == RunNodeType::PlayerInterior
+                    ? "portal_player_interior" :
+                destination->type == RunNodeType::BossInterior
+                    ? "portal_boss_interior" :
+                destination->type == RunNodeType::Interior
+                    ? "portal_interior" :
+                destination->type == RunNodeType::Shop ? "portal_shop" :
+                destination->type == RunNodeType::Boss ? "portal_boss" :
+                "portal_arena";
+            DrawPortalEffect(trigger, assetId);
+            (void)destination;
+        }
     for (const Spawner& spawner : spawners) {
         if (spawner.health <= 0) continue;
         std::uint32_t spawnerColor = 0x00A02050;
@@ -377,10 +863,20 @@ void Render(HWND window) {
             spawnerColor = 0x00E07828;
         else if (spawner.enemyType == "shooter")
             spawnerColor = 0x00B048D0;
+        const float progress = std::clamp(
+            1.0f - spawner.timer / std::max(0.001f, spawner.spawnDelay),
+            0.0f, 1.0f);
+        const float strength = progress * progress * 5.0f;
+        const float elapsed = std::max(0.0f, spawner.spawnDelay - spawner.timer);
+        const float phase = elapsed * (12.0f + progress * 48.0f) +
+            static_cast<float>(spawner.id % 97);
+        const float vibrationX = std::sin(phase * 1.71f) * strength;
+        const float vibrationY = std::cos(phase * 2.33f) * strength;
         DrawWorldRect(
-            {spawner.x, spawner.y, 30, 30}, spawnerColor);
+            {spawner.x + vibrationX, spawner.y + vibrationY, 30, 30},
+            spawnerColor);
         DrawWorldRect(
-            {spawner.x + 5, spawner.y + 5,
+            {spawner.x + vibrationX + 5, spawner.y + vibrationY + 5,
              static_cast<float>(spawner.health * 4), 5},
             0x00FFFFFF);
     }
@@ -410,14 +906,9 @@ void Render(HWND window) {
         DrawChargerWindup(enemy);
     for (const Enemy& enemy : enemies)
         DrawEnemySprite(enemy);
-    DrawWorldRect(
-        {playerX, playerY, kPlayerSize, kPlayerSize},
-        playerHealth > 0 ? 0x00FFFFFF : 0x00333333);
+    DrawPlayer();
     for (const Projectile& projectile : projectiles)
-        DrawWorldRect(
-            {projectile.x, projectile.y,
-             kProjectileSize, kProjectileSize},
-            0x00FFFFFF);
+        DrawProjectileVisual(projectile);
     for (const Bomb& bomb : bombs) {
         DrawWorldRect(
             {bomb.x - 5, bomb.y - 5, 11, 11}, 0x0000FFFF);
@@ -449,24 +940,37 @@ void Render(HWND window) {
             color);
     }
 
+    if (runMode) {
+        DrawRunHud();
+        if (run.mapActive) {
+            const std::string prompt = "CHOOSE NEXT PATH";
+            DrawTextString(
+                prompt,
+                (buffer.width -
+                    text_renderer::MeasureWidth(prompt.size())) / 2,
+                54, 0x00FFFFFF);
+        }
+    } else {
     DrawRectangle(0, 0, buffer.width, 64, 0x00070B11);
     const auto help = phrases.find("help");
     if (help != phrases.end())
-        DrawPhrase(help->second, 16, 42, 0x007FA9C4, false);
+        DrawPhrase(help->second, 16, 42, 0x00FFFFFF, false);
     const auto health = phrases.find("hud_health");
     if (health != phrases.end())
-        DrawPhrase(health->second, 16, 16, 0x00B8C8D8, false);
+        DrawPhrase(health->second, 16, 16, 0x00FFFFFF, false);
     for (int value = 0; value < playerHealth; ++value)
         DrawRectangle(
             100 + value * 19, 16, 14, 14, 0x00FFFFFF);
     const float bombReady =
-        1.0f - bombCooldown / kBombCooldownDuration;
+        1.0f - bombCooldown /
+            std::max(0.01f, SecondaryCooldownDuration());
     DrawRectangle(
         buffer.width - 70, 18, 54, 7, 0x00202A33);
     DrawRectangle(
         buffer.width - 70, 18,
         static_cast<int>(54 * bombReady), 7,
         bombCooldown <= 0 ? 0x0000FFFF : 0x00006688);
+    }
     HDC target = GetDC(window);
     BitBlt(
         target, 0, 0, buffer.width, buffer.height,
