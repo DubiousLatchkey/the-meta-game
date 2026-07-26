@@ -38,6 +38,7 @@ bool RunWall(const Rect& rectangle);
 
 // Upgrade / difficulty bookkeeping (gameplay.cpp).
 std::uint32_t UpgradeRank(UpgradeType type);
+int EffectivePlayerMaxHealth();
 void AddUpgradeStep(UpgradeType type);
 float EffectiveShotInterval();
 float EffectiveBombCooldown();
@@ -86,6 +87,8 @@ void ResetEnemyDifficultyProgress();
 Rect PhysicalExitPortalRect();
 void ConfigureNode(RunNode& node);
 void EnterRunMap();
+void UpdateShopPurchases(float dt);
+void UpdateDebugInteractions(float dt);
 void UpdatePlayerWeapons(float dt);
 
 // Boss (gameplay_boss.cpp).

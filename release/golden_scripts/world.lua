@@ -39,6 +39,10 @@ local text = {
 
 local _ = false
 local w = { 255, 255, 255 }
+local circle_tint = { 255, 220, 230 }
+local triangle_tint = { 215, 225, 255 }
+local charger_tint = { 255, 232, 208 }
+local shooter_tint = { 244, 216, 255 }
 -- Printable 5x7 glyph bitmaps. Each row is a five-bit mask. The C++ renderer
 -- loads this atlas instead of owning font shapes.
 local glyphs = {
@@ -150,6 +154,7 @@ local function sprite(mask, color)
     end
     return result
 end
+
 -- Mutable RGB assets shared by portals, pickups, and arena-wall placements.
 local wall_assets = {
     portal_arena = sprite({0x0E,0x11,0x15,0x11,0x15,0x11,0x0E}, {0,232,255}),
@@ -162,8 +167,9 @@ local wall_assets = {
     powerup_multishot = sprite({0x15,0x15,0x15,0x15,0x15,0x15,0x15}, {0,232,255}),
     powerup_homing = sprite({0x0E,0x10,0x17,0x11,0x17,0x01,0x0E}, {120,255,112}),
     powerup_auto_rocket = sprite({0x04,0x0E,0x1F,0x0E,0x0E,0x0A,0x11}, {255,138,48}),
-    homing_rocket = sprite({0x04,0x0E,0x1F,0x0E,0x1F,0x0E,0x04}, {255,138,48}),
-    boomerang = sprite({0x11,0x08,0x04,0x02,0x04,0x08,0x11}, {255,224,72}),
+    powerup_health = sprite({0x0A,0x1F,0x1F,0x0E,0x04,0x00,0x00}, {255,72,96}),
+    homing_rocket = sprite({0x04,0x0E,0x0E,0x0E,0x1F,0x00,0x00}, {255,138,48}),
+    boomerang = sprite({0x00,0x06,0x0C,0x18,0x0C,0x06,0x00}, {255,224,72}),
 }
 local roguelite = {
     depths = 10,
@@ -171,10 +177,13 @@ local roguelite = {
     branch_nodes_max = 4,
     extra_branch_edges = 2,
     full_audio_wall_chance_percent = 50,
+    health_pickup_drop_chance = 10,
+    powerup_drop_chance = 20,
     arena_waves = 3,
     interior_waves = 2,
     wave_cooldown = 1.5,
     shop_price = 5,
+    shop_purchase_seconds = 1.0,
     powerup_seconds = 10,
     portal_width = 110,
     player_invincibility_seconds = 0.5,
@@ -193,13 +202,13 @@ local player_weapons = {
     railgun = {
         -- One charged shot every two seconds; upgrades have a larger
         -- real-time impact than they do on rapid projectiles.
-        cadence = 2.0, cadence_effect_scale = 6.0,
+        cadence = 1.0, cadence_effect_scale = 6.0,
         range = 1500, spread = 0.14,
         width = 8, count = 1, projectiles_per_shot = 1, damage = 2,
     },
     boomerang = {
         cadence = 0.8, cadence_effect_scale = 2.0,
-        speed = 480, range = 700, spread = 0.14,
+        speed = 900, range = 700, spread = 0.14, deceleration_scale = 4.0,
         width = 8, count = 1, projectiles_per_shot = 1,
         damage = 1, boomerang = true,
     },
@@ -329,13 +338,13 @@ return {
             health = 3, speed = 3, contact_damage = 1, pixel_scale = 10,
             burst_min = 1, burst_max = 3,
             sprite = {
-                { _, _, w, w, w, _, _ },
-                { _, w, w, w, w, w, _ },
-                { w, w, w, w, w, w, w },
-                { w, w, w, w, w, w, w },
-                { w, w, w, w, w, w, w },
-                { _, w, w, w, w, w, _ },
-                { _, _, w, w, w, _, _ },
+                { _, _, circle_tint, circle_tint, circle_tint, _, _ },
+                { _, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, _ },
+                { circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint },
+                { circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint },
+                { circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint },
+                { _, circle_tint, circle_tint, circle_tint, circle_tint, circle_tint, _ },
+                { _, _, circle_tint, circle_tint, circle_tint, _, _ },
             },
         },
         triangle = {
@@ -344,13 +353,13 @@ return {
             health = 1, speed = 5, contact_damage = 1, pixel_scale = 4,
             burst_min = 4, burst_max = 6, spawn_weight = 60,
             sprite = {
-                { _, _, _, w, _, _, _ },
-                { _, _, w, w, w, _, _ },
-                { _, _, w, w, w, _, _ },
-                { _, w, w, w, w, w, _ },
-                { _, w, w, w, w, w, _ },
-                { w, w, w, w, w, w, w },
-                { w, w, w, w, w, w, w },
+                { _, _, _, triangle_tint, _, _, _ },
+                { _, _, triangle_tint, triangle_tint, triangle_tint, _, _ },
+                { _, _, triangle_tint, triangle_tint, triangle_tint, _, _ },
+                { _, triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint, _ },
+                { _, triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint, _ },
+                { triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint },
+                { triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint, triangle_tint },
             },
         },
         charger = {
@@ -360,13 +369,13 @@ return {
             attack_cooldown = 1, attack_distance = 375,
             attack_speed = 600,
             sprite = {
-                { _, _, _, w, _, _, _ },
-                { _, _, w, w, w, _, _ },
-                { _, w, w, w, w, w, _ },
-                { _, w, w, w, w, w, _ },
-                { _, w, w, w, w, w, _ },
-                { _, w, w, w, w, w, _ },
-                { _, w, w, w, w, w, _ },
+                { _, _, _, charger_tint, _, _, _ },
+                { _, _, charger_tint, charger_tint, charger_tint, _, _ },
+                { _, charger_tint, charger_tint, charger_tint, charger_tint, charger_tint, _ },
+                { _, charger_tint, charger_tint, charger_tint, charger_tint, charger_tint, _ },
+                { _, charger_tint, charger_tint, charger_tint, charger_tint, charger_tint, _ },
+                { _, charger_tint, charger_tint, charger_tint, charger_tint, charger_tint, _ },
+                { _, charger_tint, charger_tint, charger_tint, charger_tint, charger_tint, _ },
             },
         },
         shooter = {
@@ -376,13 +385,13 @@ return {
             aim_lock_seconds = 0.25,
             attack_cooldown = 1.5, attack_distance = 660,
             sprite = {
-                { _, w, w, w, _ },
-                { _, w, w, w, _ },
-                { _, w, w, w, _ },
-                { _, w, w, w, _ },
-                { _, w, w, w, _ },
-                { _, w, w, w, _ },
-                { _, w, w, w, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
+                { _, shooter_tint, shooter_tint, shooter_tint, _ },
             },
         },
     },

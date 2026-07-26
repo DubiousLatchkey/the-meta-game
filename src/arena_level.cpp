@@ -198,28 +198,32 @@ ArenaLevel BuildArenaLevel(
     if (arena.fullAudioWaveform) {
         const float width = static_cast<float>(
             (AudioSampleCount(fullAudioSound) + 1) / 2);
+        constexpr float waveformMidpoint = 127.5f;
         AudioPanel waveform;
         waveform.sound = fullAudioSound;
         waveform.representation = AudioRepresentation::Waveform;
         switch (arena.fullAudioDirection) {
             case PortalDirection::North:
                 waveform.rect = {bounds.x + 120.0f,
-                    bounds.y + arena.wallThickness, width, 256.0f};
+                    bounds.y + arena.wallThickness - waveformMidpoint,
+                    width, 256.0f};
                 break;
             case PortalDirection::South:
                 waveform.rect = {bounds.x + 120.0f,
-                    bounds.y + bounds.height - arena.wallThickness - 255.0f,
+                    bounds.y + bounds.height - arena.wallThickness -
+                        waveformMidpoint,
                     width, 256.0f};
                 break;
             case PortalDirection::West:
                 waveform.vertical = true;
-                waveform.rect = {bounds.x + arena.wallThickness,
+                waveform.rect = {bounds.x + arena.wallThickness -
+                    waveformMidpoint,
                     bounds.y + 120.0f, 256.0f, width};
                 break;
             case PortalDirection::East:
                 waveform.vertical = true;
                 waveform.rect = {bounds.x + bounds.width -
-                    arena.wallThickness - 255.0f,
+                    arena.wallThickness - waveformMidpoint,
                     bounds.y + 120.0f, 256.0f, width};
                 break;
         }

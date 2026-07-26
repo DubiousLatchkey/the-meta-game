@@ -15,7 +15,7 @@ void BuildInteriorWorld(std::uint64_t seed) {
     BuildShields();
 }
 
-void BuildPlayerInteriorWorld(std::uint64_t seed, int& spawnRoom) {
+void BuildPlayerInteriorWorld(std::uint64_t, int& spawnRoom) {
     rooms.clear();
     roomAt.clear();
     roomConnections.clear();
@@ -28,12 +28,11 @@ void BuildPlayerInteriorWorld(std::uint64_t seed, int& spawnRoom) {
             rooms.push_back({row, column, row, column, 0});
             roomAt[{row, column}] = index;
         }
+    // Player Internals is a fixed, fully connected 3x3 facility. Unlike
+    // procedural enemy interiors, its entry point must stay recognizable.
     for (int doorway = 0; doorway < 12; ++doorway)
-        if (playerInteriorState.brokenDoorways[doorway])
-            OpenPlayerInteriorDoorway(doorway);
-    static constexpr int edgeRooms[]{0, 1, 2, 3, 5, 6, 7, 8};
-    spawnRoom = edgeRooms[
-        ConnectionSeed(seed, 0, 8) % std::size(edgeRooms)];
+        OpenPlayerInteriorDoorway(doorway);
+    spawnRoom = RoomIndexAt(1, 1);
     std::queue<int> pending;
     rooms[spawnRoom].distance = 0;
     std::array<bool, 9> visited{};

@@ -338,6 +338,11 @@ bool LoadWorldScript(const std::filesystem::path& path) {
                         lua, -1, "cadence_effect_scale",
                         weapon.cadenceEffectScale),
                     0.05f, 20.0f);
+                weapon.decelerationScale = std::clamp(
+                    NumberField(
+                        lua, -1, "deceleration_scale",
+                        weapon.decelerationScale),
+                    0.05f, 10.0f);
                 weapon.speed = std::clamp(
                     NumberField(lua, -1, "speed", weapon.speed),
                     1.0f, 3000.0f);
@@ -498,8 +503,19 @@ bool LoadWorldScript(const std::filesystem::path& path) {
                 IntegerField(
                     lua, -1, "full_audio_wall_chance_percent", 50),
                 0, 100));
+        loadedRogueliteTuning.healthPickupDropChance =
+            static_cast<std::uint32_t>(std::clamp(
+                IntegerField(lua, -1, "health_pickup_drop_chance", 10),
+                1, 1000));
+        loadedRogueliteTuning.powerupDropChance =
+            static_cast<std::uint32_t>(std::clamp(
+                IntegerField(lua, -1, "powerup_drop_chance", 20),
+                1, 1000));
         loadedRogueliteTuning.shopPrice = static_cast<std::uint32_t>(
             std::clamp(IntegerField(lua, -1, "shop_price", 5), 1, 99));
+        loadedRogueliteTuning.shopPurchaseSeconds = std::clamp(
+            NumberField(lua, -1, "shop_purchase_seconds", 1.0f),
+            0.1f, 10.0f);
         loadedRogueliteTuning.arenaWaves = static_cast<std::uint32_t>(
             std::clamp(IntegerField(lua, -1, "arena_waves", 3), 1, 8));
         loadedRogueliteTuning.interiorWaves = static_cast<std::uint32_t>(
@@ -732,7 +748,7 @@ void ApplyMutations() {
                     static_cast<std::uint32_t>(std::max(0, value));
         } else if (sscanf_s(
                        line.c_str(), "set_player_permanent(%d)", &row) == 1) {
-            if (row >= 0 && row < 6)
+            if (row >= 0 && row < 8)
                 playerInteriorState.permanent[row] = true;
         } else if (sscanf_s(
                        line.c_str(), "set_player_value(%d, %d)",
@@ -847,7 +863,7 @@ void SaveMutations() {
     for (int index = 0; index < 3; ++index)
         output << "set_player_rank(" << index << ", "
                << playerInteriorState.repeatableRanks[index] << ")\n";
-    for (int index = 0; index < 6; ++index)
+    for (int index = 0; index < 8; ++index)
         if (playerInteriorState.permanent[index])
             output << "set_player_permanent(" << index << ")\n";
     for (int index = 0; index < 9; ++index)

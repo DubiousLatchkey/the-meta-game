@@ -24,6 +24,11 @@ std::uint32_t UpgradeRank(UpgradeType type) {
     return 0;
 }
 
+int EffectivePlayerMaxHealth() {
+    return kPlayerMaxHealth + static_cast<int>(
+        UpgradeRank(UpgradeType::MaxHealth));
+}
+
 void AddUpgradeStep(UpgradeType type) {
     for (RunUpgrade& upgrade : run.upgrades)
         if (upgrade.type == type) {
@@ -65,13 +70,14 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
                     UpgradeRank(UpgradeType::BombCooldown));
     result.damage += static_cast<int>(
         UpgradeRank(UpgradeType::ProjectileDamage));
-    if (playerInteriorState.repeatableRanks[2] > 0)
-        result.projectilesPerShot +=
-            std::max(0, 100 - playerInteriorState.values[2]);
+    result.projectilesPerShot +=
+        playerInteriorState.permanent[6] ? 1 : 0;
     if (run.multishotRemaining > 0)
         result.count += 2;
     if (playerInteriorState.permanent[1])
         result.count += std::max(0, 3 - playerInteriorState.values[4]);
+    if (playerInteriorState.permanent[7])
+        ++result.count;
     if (run.homingRemaining > 0 ||
         (playerInteriorState.permanent[2] &&
          playerInteriorState.values[5] == 0))
@@ -79,12 +85,6 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
     if (id == "auto_rocket" && playerInteriorState.permanent[3])
         result.cadence = std::max(
             0.05f, playerInteriorState.values[6] / 1000.0f);
-    if (playerInteriorState.repeatableRanks[1] > 0)
-        result.cadence /= std::max(
-            0.1f, 1.0f + playerFireImprovementPerStep *
-                static_cast<float>(
-                    playerInteriorDefaults[1] -
-                    playerInteriorState.values[1]));
     return result;
 }
 
@@ -457,41 +457,59 @@ void ConfigureNode(RunNode& node) {
         if (node.shopOffers.empty()) {
             static const UpgradeType upgrades[]{
                 UpgradeType::FireRate, UpgradeType::BombCooldown,
-                UpgradeType::MoveSpeed, UpgradeType::Invincibility};
+                UpgradeType::MoveSpeed, UpgradeType::Invincibility,
+                UpgradeType::ProjectileDamage, UpgradeType::MaxHealth};
             const std::uint32_t rotation = static_cast<std::uint32_t>(
-                DeriveRunSeed(node.seed, 0x4f46464552ULL) % 4);
+                DeriveRunSeed(node.seed, 0x4f46464552ULL) % 6);
             for (std::uint32_t index = 0; index < 3; ++index) {
                 ShopOffer offer;
                 offer.id =
                     DeriveRunSeed(node.seed, 0x53484f50ULL, index);
-                offer.upgrade = upgrades[(rotation + index) % 4];
+                offer.upgrade = upgrades[(rotation + index) % 6];
                 offer.price = rogueliteTuning.shopPrice;
                 node.shopOffers.push_back(offer);
             }
-            ShopOffer railgun;
-            railgun.id = DeriveRunSeed(node.seed, 0x53484f50ULL, 3);
-            railgun.kind = ShopOfferKind::PrimaryWeapon;
-            railgun.primaryWeapon = PrimaryWeapon::Railgun;
-            railgun.price = rogueliteTuning.shopPrice;
-            node.shopOffers.push_back(railgun);
-            ShopOffer boomerang;
-            boomerang.id = DeriveRunSeed(node.seed, 0x53484f50ULL, 6);
-            boomerang.kind = ShopOfferKind::PrimaryWeapon;
-            boomerang.primaryWeapon = PrimaryWeapon::Boomerang;
-            boomerang.price = rogueliteTuning.shopPrice;
-            node.shopOffers.push_back(boomerang);
-            ShopOffer rocket;
-            rocket.id = DeriveRunSeed(node.seed, 0x53484f50ULL, 4);
-            rocket.kind = ShopOfferKind::SecondaryWeapon;
-            rocket.secondaryWeapon = SecondaryWeapon::HomingRocket;
-            rocket.price = rogueliteTuning.shopPrice;
-            node.shopOffers.push_back(rocket);
-            ShopOffer contactBomb;
-            contactBomb.id = DeriveRunSeed(node.seed, 0x53484f50ULL, 5);
-            contactBomb.kind = ShopOfferKind::SecondaryWeapon;
-            contactBomb.secondaryWeapon = SecondaryWeapon::ContactBomb;
-            contactBomb.price = rogueliteTuning.shopPrice;
-            node.shopOffers.push_back(contactBomb);
+            ShopOffer weapon;
+            weapon.id = DeriveRunSeed(node.seed, 0x53484f50ULL, 3);
+            weapon.price = rogueliteTuning.shopPrice;
+            const std::uint32_t weaponChoice = static_cast<std::uint32_t>(
+                DeriveRunSeed(node.seed, 0x574541504f4eULL) % 4);
+            for (std::uint32_t attempt = 0; attempt < 4; ++attempt) {
+                const std::uint32_t choice = (weaponChoice + attempt) % 4;
+                if (choice == 0 && (!playerInteriorState.permanent[4]
+                    ? run.primaryWeapon != PrimaryWeapon::Railgun
+                    : !run.primaryWeapons[
+                        static_cast<int>(PrimaryWeapon::Railgun)])) {
+                    weapon.kind = ShopOfferKind::PrimaryWeapon;
+                    weapon.primaryWeapon = PrimaryWeapon::Railgun;
+                    break;
+                }
+                if (choice == 1 && (!playerInteriorState.permanent[4]
+                    ? run.primaryWeapon != PrimaryWeapon::Boomerang
+                    : !run.primaryWeapons[
+                        static_cast<int>(PrimaryWeapon::Boomerang)])) {
+                    weapon.kind = ShopOfferKind::PrimaryWeapon;
+                    weapon.primaryWeapon = PrimaryWeapon::Boomerang;
+                    break;
+                }
+                if (choice == 2 && (!playerInteriorState.permanent[5]
+                    ? run.secondaryWeapon != SecondaryWeapon::HomingRocket
+                    : !run.secondaryWeapons[
+                        static_cast<int>(SecondaryWeapon::HomingRocket)])) {
+                    weapon.kind = ShopOfferKind::SecondaryWeapon;
+                    weapon.secondaryWeapon = SecondaryWeapon::HomingRocket;
+                    break;
+                }
+                if (choice == 3 && (!playerInteriorState.permanent[5]
+                    ? run.secondaryWeapon != SecondaryWeapon::ContactBomb
+                    : !run.secondaryWeapons[
+                        static_cast<int>(SecondaryWeapon::ContactBomb)])) {
+                    weapon.kind = ShopOfferKind::SecondaryWeapon;
+                    weapon.secondaryWeapon = SecondaryWeapon::ContactBomb;
+                    break;
+                }
+            }
+            node.shopOffers.push_back(weapon);
         }
         for (RunPortal& portal : node.portals) portal.active = true;
     } else if (node.type == RunNodeType::Interior ||
@@ -559,26 +577,47 @@ bool RunWall(const Rect& rectangle) {
     return RunArenaMode() && ArenaGeometryOverlaps(runArena, rectangle);
 }
 
-bool HitShopOffer(const Rect& shot) {
+bool HitShopOffer(const Rect&) {
+    return false;
+}
+
+void UpdateShopPurchases(float dt) {
     RunNode* node = CurrentRunNode();
-    if (!node || node->type != RunNodeType::Shop) return false;
+    if (!node || node->type != RunNodeType::Shop) return;
+    const Rect player{playerX, playerY, kPlayerSize, kPlayerSize};
     for (std::size_t index = 0; index < node->shopOffers.size(); ++index) {
-        const Rect target = ShopOfferTarget(index);
-        if (!Overlaps(shot, target)) continue;
         ShopOffer& offer = node->shopOffers[index];
-        if (!offer.purchased && run.currency >= offer.price) {
-            run.currency -= offer.price;
-            if (offer.kind == ShopOfferKind::Upgrade)
-                AddUpgradeStep(offer.upgrade);
-            else if (offer.kind == ShopOfferKind::PrimaryWeapon)
+        const bool repeatable = offer.kind == ShopOfferKind::Upgrade;
+        if ((!repeatable && offer.purchased) || run.currency < offer.price ||
+            !Overlaps(player, ShopOfferPurchaseArea(index))) {
+            offer.purchaseTimer = 0;
+            continue;
+        }
+        if (offer.purchaseTimer <= 0) PlaySoundEffect(Sound::AimTick);
+        offer.purchaseTimer += dt;
+        if (offer.purchaseTimer < rogueliteTuning.shopPurchaseSeconds)
+            continue;
+        run.currency -= offer.price;
+        if (offer.kind == ShopOfferKind::Upgrade) {
+            AddUpgradeStep(offer.upgrade);
+            if (offer.upgrade == UpgradeType::MaxHealth)
+                ++playerHealth;
+        } else if (offer.kind == ShopOfferKind::PrimaryWeapon) {
+            if (playerInteriorState.permanent[4])
+                run.primaryWeapons[static_cast<int>(offer.primaryWeapon)] = true;
+            else
                 run.primaryWeapon = offer.primaryWeapon;
+        } else {
+            if (playerInteriorState.permanent[5])
+                run.secondaryWeapons[
+                    static_cast<int>(offer.secondaryWeapon)] = true;
             else
                 run.secondaryWeapon = offer.secondaryWeapon;
-            offer.purchased = true;
         }
-        return true;
+        if (!repeatable) offer.purchased = true;
+        offer.purchaseTimer = 0;
+        PlaySoundEffect(Sound::HitEnemy);
     }
-    return false;
 }
 
 Rect PortalLabelRect() {
@@ -605,6 +644,11 @@ Rect ShopOfferTarget(std::size_t index) {
         200.0f, 130.0f};
 }
 
+Rect ShopOfferPurchaseArea(std::size_t index) {
+    const Rect offer = ShopOfferTarget(index);
+    return {offer.x + offer.width + 20.0f, offer.y, 120.0f, offer.height};
+}
+
 const char* UpgradeName(UpgradeType type) {
     switch (type) {
         case UpgradeType::FireRate: return "SHOT DELAY";
@@ -613,6 +657,7 @@ const char* UpgradeName(UpgradeType type) {
         case UpgradeType::MaxHealth: return "MAX HEALTH";
         case UpgradeType::ProjectileDamage: return "SHOT DAMAGE";
         case UpgradeType::Invincibility: return "HIT INVINCIBILITY";
+        case UpgradeType::ExtraProjectile: return "EXTRA PROJECTILE";
     }
     return "UPGRADE";
 }

@@ -107,7 +107,7 @@ void StartRun(std::uint64_t globalSeed) {
                     Bounded(
                         DeriveRunSeed(node.seed, 0x444f574e53494445ULL),
                         4));
-                node.hardArena =
+                node.hardArena = depth != 0 &&
                     DeriveRunSeed(node.seed, 0x48415244ULL) % 4 == 0;
             }
             layers[depth].push_back(node.id);

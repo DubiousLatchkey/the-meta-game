@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <queue>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "arena_level.h"
 #include "audio.h"
@@ -64,36 +67,6 @@ bool HitSpecialControl(const Rect& shot) {
         RebuildGameplayTextBoxes();
         return true;
     }
-    if (!debugRoom) return false;
-    for (std::size_t index = 0; index < kDebugUpgrades.size(); ++index)
-        if (Overlaps(shot, DebugUpgradeTarget(index))) {
-            AddUpgradeStep(kDebugUpgrades[index]);
-            if (kDebugUpgrades[index] == UpgradeType::MaxHealth)
-                ++playerHealth;
-            return true;
-        }
-    for (std::size_t index = 0; index < 4; ++index)
-        if (Overlaps(shot, DebugWeaponTarget(index))) {
-            if (index < 2)
-                run.primaryWeapon = index == 0
-                    ? PrimaryWeapon::Standard : PrimaryWeapon::Railgun;
-            else if (index == 2)
-                run.primaryWeapon = PrimaryWeapon::Boomerang;
-            else if (index == 3)
-                run.secondaryWeapon = SecondaryWeapon::Bomb;
-            else if (index == 4)
-                run.secondaryWeapon = SecondaryWeapon::HomingRocket;
-            else
-                run.secondaryWeapon = SecondaryWeapon::ContactBomb;
-            return true;
-        }
-    for (std::size_t index = 0; index < kDebugEnemyTypes.size(); ++index)
-        if (Overlaps(shot, DebugSpawnerTarget(index))) {
-            debugSpawnerOn[index] = !debugSpawnerOn[index];
-            Spawner& spawner = spawners[index];
-            ResetSpawnerTimer(spawner, 0.25f);
-            return true;
-        }
     return false;
 }
 
@@ -426,6 +399,13 @@ void DetonateBomb(float x, float y, int damage, float radius) {
         else if (!MainMenuActive())
             RebuildGameplayTextBoxes();
     }
+    // Explosions use the same wall hit path as projectiles, sampling their
+    // blast disk so arena sprites/glyphs/audio pixels are all mutable.
+    const float spacing = std::max(6.0f, radius * 0.25f);
+    for (float offsetY = -radius; offsetY <= radius; offsetY += spacing)
+        for (float offsetX = -radius; offsetX <= radius; offsetX += spacing)
+            if (offsetX * offsetX + offsetY * offsetY <= radiusSquared)
+                HitRoomWall({x + offsetX - 1.0f, y + offsetY - 1.0f, 2, 2});
     explosions.push_back({x, y, kExplosionDuration});
 }
 
@@ -815,6 +795,7 @@ void EmitProjectileWeapon(
             projectile.width = weapon.width;
             projectile.homingLateralOffset = offset * 180.0f;
             projectile.boomerang = weapon.boomerang;
+            projectile.boomerangReleaseSpeed = weapon.speed;
             projectiles.push_back(projectile);
         }
     }
@@ -850,9 +831,15 @@ void ShootToward(int mouseX, int mouseY) {
         return;
     float dx = 0, dy = 0;
     if (!AimDirection(dx, dy)) return;
-    EmitProjectileWeapon(ResolvePlayerWeapon(
-        run.primaryWeapon == PrimaryWeapon::Boomerang
-            ? "boomerang" : "standard"), dx, dy);
+    const bool allPrimaries = playerInteriorState.permanent[4];
+    if ((allPrimaries && run.primaryWeapons[
+            static_cast<int>(PrimaryWeapon::Standard)]) ||
+        (!allPrimaries && run.primaryWeapon == PrimaryWeapon::Standard))
+        EmitProjectileWeapon(ResolvePlayerWeapon("standard"), dx, dy);
+    if ((allPrimaries && run.primaryWeapons[
+            static_cast<int>(PrimaryWeapon::Boomerang)]) ||
+        (!allPrimaries && run.primaryWeapon == PrimaryWeapon::Boomerang))
+        EmitProjectileWeapon(ResolvePlayerWeapon("boomerang"), dx, dy);
     PlaySoundEffect(Sound::LaserShoot);
 }
 
@@ -873,12 +860,18 @@ void AcquireRailTarget(float startX, float startY, float& dx, float& dy) {
     float targetX = 0, targetY = 0;
     if (!AcquireHomingTarget(startX, startY, targetX, targetY))
         return;
-    dx = targetX - startX;
-    dy = targetY - startY;
-    const float length = std::sqrt(dx * dx + dy * dy);
+    const float candidateX = targetX - startX;
+    const float candidateY = targetY - startY;
+    const float length = std::sqrt(
+        candidateX * candidateX + candidateY * candidateY);
     if (length > 0.01f) {
-        dx /= length;
-        dy /= length;
+        const float targetDx = candidateX / length;
+        const float targetDy = candidateY / length;
+        // Rail homing may assist an aimed beam, but never redirect it toward
+        // a target far from the cursor direction.
+        if (dx * targetDx + dy * targetDy < 0.8f) return;
+        dx = targetDx;
+        dy = targetDy;
     }
 }
 
@@ -909,7 +902,10 @@ bool FirePlayerRail() {
             const float x = startX + dx * distance;
             const float y = startY + dy * distance;
             const Rect wallProbe{x - 1, y - 1, 2, 2};
-            if (RunWall(wallProbe) || HitsWall(wallProbe)) break;
+            if (RunWall(wallProbe) || HitsWall(wallProbe)) {
+                HitRoomWall(wallProbe);
+                break;
+            }
             const Rect hitProbe{
                 x - weapon.width * 0.5f, y - weapon.width * 0.5f,
                 weapon.width, weapon.width};
@@ -971,8 +967,8 @@ void BeginPrimaryFire(int mouseX, int mouseY) {
     aimY = mouseY;
     shooting = true;
     if (run.primaryWeapon == PrimaryWeapon::Railgun ||
-        (playerInteriorState.permanent[4] &&
-         playerInteriorState.values[7] == 0)) {
+        (playerInteriorState.permanent[4] && run.primaryWeapons[
+            static_cast<int>(PrimaryWeapon::Railgun)])) {
         const float chargeTime = ResolvePlayerWeapon("railgun").cadence;
         if (run.primaryCharge < chargeTime) run.primaryCharge = 0;
         LockRailAim();
@@ -980,10 +976,13 @@ void BeginPrimaryFire(int mouseX, int mouseY) {
     }
     if (run.primaryWeapon == PrimaryWeapon::Standard ||
         run.primaryWeapon == PrimaryWeapon::Boomerang ||
-        (playerInteriorState.permanent[4] &&
-         playerInteriorState.values[7] == 0)) {
-        shotCooldown = EffectiveShotInterval();
-        ShootToward(mouseX, mouseY);
+        (playerInteriorState.permanent[4] && (run.primaryWeapons[
+            static_cast<int>(PrimaryWeapon::Standard)] ||
+            run.primaryWeapons[static_cast<int>(PrimaryWeapon::Boomerang)]))) {
+        if (shotCooldown <= 0.0f) {
+            ShootToward(mouseX, mouseY);
+            shotCooldown = EffectiveShotInterval();
+        }
     }
 }
 
@@ -991,12 +990,12 @@ void ReleasePrimaryFire(int mouseX, int mouseY) {
     aimX = mouseX;
     aimY = mouseY;
     shooting = false;
-    const bool railEnabled =
-        run.primaryWeapon == PrimaryWeapon::Railgun ||
-        (playerInteriorState.permanent[4] &&
-         playerInteriorState.values[7] == 0);
+    const bool railEnabled = run.primaryWeapon == PrimaryWeapon::Railgun ||
+        (playerInteriorState.permanent[4] && run.primaryWeapons[
+            static_cast<int>(PrimaryWeapon::Railgun)]);
     if (railEnabled &&
         run.primaryCharge >= ResolvePlayerWeapon("railgun").cadence) {
+        LockRailAim();
         if (FirePlayerRail()) run.primaryCharge = 0;
     } else {
         run.primaryCharge = 0;
@@ -1016,19 +1015,29 @@ void FireSecondary(int mouseX, int mouseY) {
     const float length = std::sqrt(dx * dx + dy * dy);
     if (length <= 0.01f) return;
     float cooldown = 0;
-    if (run.secondaryWeapon == SecondaryWeapon::Bomb ||
-        run.secondaryWeapon == SecondaryWeapon::ContactBomb ||
-        (playerInteriorState.permanent[5] &&
-         playerInteriorState.values[8] == 0)) {
-        const WeaponStats weapon = ResolvePlayerWeapon(
-            run.secondaryWeapon == SecondaryWeapon::ContactBomb
-                ? "contact_bomb" : "bomb");
+    const bool allSecondaries = playerInteriorState.permanent[5];
+    const bool bomb = (allSecondaries && run.secondaryWeapons[
+        static_cast<int>(SecondaryWeapon::Bomb)]) ||
+        (!allSecondaries && run.secondaryWeapon == SecondaryWeapon::Bomb);
+    const bool contact = (allSecondaries && run.secondaryWeapons[
+        static_cast<int>(SecondaryWeapon::ContactBomb)]) ||
+        (!allSecondaries &&
+         run.secondaryWeapon == SecondaryWeapon::ContactBomb);
+    const bool rocket = (allSecondaries && run.secondaryWeapons[
+        static_cast<int>(SecondaryWeapon::HomingRocket)]) ||
+        (!allSecondaries &&
+         run.secondaryWeapon == SecondaryWeapon::HomingRocket);
+    if (bomb) {
+        const WeaponStats weapon = ResolvePlayerWeapon("bomb");
         EmitBombWeapon(weapon, dx / length, dy / length);
         cooldown = std::max(cooldown, weapon.cadence);
     }
-    if (run.secondaryWeapon == SecondaryWeapon::HomingRocket ||
-        (playerInteriorState.permanent[5] &&
-         playerInteriorState.values[8] == 0)) {
+    if (contact) {
+        const WeaponStats weapon = ResolvePlayerWeapon("contact_bomb");
+        EmitBombWeapon(weapon, dx / length, dy / length);
+        cooldown = std::max(cooldown, weapon.cadence);
+    }
+    if (rocket) {
         const WeaponStats weapon = ResolvePlayerWeapon("homing_rocket");
         EmitProjectileWeapon(weapon, dx / length, dy / length);
         cooldown = std::max(cooldown, weapon.cadence);
@@ -1127,12 +1136,6 @@ bool UpdateMovementAndPortals(float dt) {
     }
     float moveSpeed =
         kPlayerSpeed + 12.0f * UpgradeRank(UpgradeType::MoveSpeed);
-    if (playerInteriorState.repeatableRanks[0] > 0)
-        moveSpeed *= std::max(
-            0.1f, 1.0f + playerMoveImprovementPerStep *
-                static_cast<float>(
-                    playerInteriorDefaults[0] -
-                    playerInteriorState.values[0]));
     if (run.mapActive) {
         playerX = std::clamp(
             playerX + moveX * moveSpeed * dt,
@@ -1207,23 +1210,29 @@ bool UpdateMovementAndPortals(float dt) {
 }
 
 void UpdatePlayerWeapons(float dt) {
+    shotCooldown = std::max(0.0f, shotCooldown - dt);
     if (shooting && (run.primaryWeapon == PrimaryWeapon::Railgun ||
                      (playerInteriorState.permanent[4] &&
-                      playerInteriorState.values[7] == 0))) {
+                      run.primaryWeapons[
+                          static_cast<int>(PrimaryWeapon::Railgun)]))) {
         run.primaryCharge += dt;
         const float chargeTime =
             ResolvePlayerWeapon("railgun").cadence;
-        if (run.primaryCharge >= chargeTime && FirePlayerRail()) {
-            run.primaryCharge -= chargeTime;
+        if (run.primaryCharge >= chargeTime) {
             LockRailAim();
-            PlaySoundEffect(Sound::ChargerChargeUp);
+            if (FirePlayerRail()) {
+                run.primaryCharge -= chargeTime;
+                PlaySoundEffect(Sound::ChargerChargeUp);
+            }
         }
     }
     if (shooting && (run.primaryWeapon == PrimaryWeapon::Standard ||
                      run.primaryWeapon == PrimaryWeapon::Boomerang ||
                      (playerInteriorState.permanent[4] &&
-                      playerInteriorState.values[7] == 0))) {
-        shotCooldown -= dt;
+                      (run.primaryWeapons[
+                          static_cast<int>(PrimaryWeapon::Standard)] ||
+                       run.primaryWeapons[
+                          static_cast<int>(PrimaryWeapon::Boomerang)])))) {
         while (shotCooldown <= 0) {
             ShootToward(aimX, aimY);
             shotCooldown += EffectiveShotInterval();
@@ -1313,7 +1322,7 @@ void UpdateWaveProgress(float dt) {
 
 void UpdatePlayerBuffs(float dt) {
     if (playerInteriorState.permanent[0] &&
-        playerHealth < kPlayerMaxHealth) {
+        playerHealth < EffectivePlayerMaxHealth()) {
         run.regenerationTimer += dt;
         if (run.regenerationTimer >=
             std::max(0.1f, playerInteriorState.values[3] / 10.0f)) {
@@ -1379,7 +1388,10 @@ void UpdatePickups(float dt) {
                             {pickup.x, pickup.y, 18, 18});
                     }),
                 textBoxes.end());
-            if (pickup.type == PickupType::Multishot)
+            if (pickup.type == PickupType::Health)
+                playerHealth = std::min(
+                    EffectivePlayerMaxHealth(), playerHealth + 1);
+            else if (pickup.type == PickupType::Multishot)
                 run.multishotRemaining = rogueliteTuning.powerupSeconds;
             else if (pickup.type == PickupType::Homing)
                 run.homingRemaining = rogueliteTuning.powerupSeconds;
@@ -1388,6 +1400,86 @@ void UpdatePickups(float dt) {
                 run.autoRocketCooldown = 0;
             }
         }
+    }
+}
+
+void ResolveEnemyCrowding() {
+    // Smaller-than-enemy cells keep the broad phase local while the shrunken
+    // footprints intentionally allow a little visual overlap.
+    constexpr float cellSize = 24.0f;
+    constexpr float footprintScale = 0.65f;
+    constexpr float maximumPush = 6.0f;
+    std::unordered_map<std::int64_t, std::vector<std::size_t>> cells;
+    auto cellKey = [](int x, int y) {
+        return static_cast<std::int64_t>(
+            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(x)) << 32) |
+            static_cast<std::uint32_t>(y));
+    };
+    auto footprint = [&](const Enemy& enemy) {
+        const Rect rect = EnemyRect(enemy);
+        const float width = rect.width * footprintScale;
+        const float height = rect.height * footprintScale;
+        return Rect{
+            CenterX(rect) - width * 0.5f,
+            CenterY(rect) - height * 0.5f, width, height};
+    };
+    for (std::size_t index = 0; index < enemies.size(); ++index) {
+        if (enemies[index].health <= 0) continue;
+        const Rect rect = footprint(enemies[index]);
+        const int firstX = static_cast<int>(std::floor(rect.x / cellSize));
+        const int firstY = static_cast<int>(std::floor(rect.y / cellSize));
+        const int lastX = static_cast<int>(
+            std::floor((rect.x + rect.width) / cellSize));
+        const int lastY = static_cast<int>(
+            std::floor((rect.y + rect.height) / cellSize));
+        for (int y = firstY; y <= lastY; ++y)
+            for (int x = firstX; x <= lastX; ++x)
+                cells[cellKey(x, y)].push_back(index);
+    }
+    std::unordered_set<std::uint64_t> testedPairs;
+    for (const auto& [cell, indices] : cells) {
+        (void)cell;
+        for (std::size_t first = 0; first < indices.size(); ++first)
+            for (std::size_t second = first + 1;
+                 second < indices.size(); ++second) {
+                const std::size_t a = indices[first], b = indices[second];
+                const std::uint64_t pair = (static_cast<std::uint64_t>(
+                    std::min(a, b)) << 32) | std::max(a, b);
+                if (!testedPairs.insert(pair).second) continue;
+                const Rect firstRect = footprint(enemies[a]);
+                const Rect secondRect = footprint(enemies[b]);
+                if (!Overlaps(firstRect, secondRect)) continue;
+                const float overlapX = std::min(
+                    firstRect.x + firstRect.width,
+                    secondRect.x + secondRect.width) -
+                    std::max(firstRect.x, secondRect.x);
+                const float overlapY = std::min(
+                    firstRect.y + firstRect.height,
+                    secondRect.y + secondRect.height) -
+                    std::max(firstRect.y, secondRect.y);
+                const float direction = CenterX(firstRect) < CenterX(secondRect)
+                    ? -1.0f : 1.0f;
+                float pushX = 0, pushY = 0;
+                if (overlapX < overlapY)
+                    pushX = direction * std::min(
+                        maximumPush, overlapX * 0.5f);
+                else
+                    pushY = (CenterY(firstRect) < CenterY(secondRect)
+                        ? -1.0f : 1.0f) * std::min(
+                            maximumPush, overlapY * 0.5f);
+                if (EnemyVisualFitsNetwork(
+                        enemies[a], enemies[a].x + pushX,
+                        enemies[a].y + pushY)) {
+                    enemies[a].x += pushX;
+                    enemies[a].y += pushY;
+                }
+                if (EnemyVisualFitsNetwork(
+                        enemies[b], enemies[b].x - pushX,
+                        enemies[b].y - pushY)) {
+                    enemies[b].x -= pushX;
+                    enemies[b].y -= pushY;
+                }
+            }
     }
 }
 
@@ -1434,6 +1526,7 @@ void UpdateEnemies(float dt, int activeRoom) {
             if (movedRoom >= 0) enemy.room = movedRoom;
         }
     }
+    ResolveEnemyCrowding();
 }
 
 void UpdateProjectilesAndBombs(float dt) {
@@ -1441,18 +1534,24 @@ void UpdateProjectilesAndBombs(float dt) {
         if (projectile.boomerang) {
             const float speed = std::sqrt(
                 projectile.vx * projectile.vx + projectile.vy * projectile.vy);
+            const float deceleration =
+                projectile.boomerangReleaseSpeed *
+                projectile.boomerangReleaseSpeed /
+                std::max(1.0f, projectile.maxDistance * 2.0f) *
+                ResolvePlayerWeapon("boomerang").decelerationScale;
             if (!projectile.returning) {
-                if (keys[0] || keys[1] || keys[2] || keys[3] ||
-                    projectile.distance >= projectile.maxDistance * 0.5f)
+                if (speed <= 1.0f) {
                     projectile.returning = true;
-                else {
-                    const float angle = 1.8f * dt;
-                    const float x = projectile.vx * std::cos(angle) -
-                        projectile.vy * std::sin(angle) * 0.55f;
-                    const float y = projectile.vx * std::sin(angle) * 0.55f +
-                        projectile.vy * std::cos(angle);
-                    projectile.vx = x;
-                    projectile.vy = y;
+                    projectile.boomerangHitEnemies.clear();
+                    projectile.boomerangHitSpawners.clear();
+                    projectile.boomerangHitTextBoxes.clear();
+                    projectile.boomerangHitSpecialControl = false;
+                    projectile.boomerangHitShop = false;
+                } else {
+                    const float nextSpeed =
+                        std::max(0.0f, speed - deceleration * dt);
+                    projectile.vx = projectile.vx / speed * nextSpeed;
+                    projectile.vy = projectile.vy / speed * nextSpeed;
                 }
             }
             if (projectile.homing && !projectile.returning)
@@ -1465,8 +1564,18 @@ void UpdateProjectilesAndBombs(float dt) {
                     projectile.distance = -1;
                     continue;
                 }
-                projectile.vx = dx / length * speed * 1.6f;
-                projectile.vy = dy / length * speed * 1.6f;
+                projectile.boomerangReturnSpeed = std::min(
+                    projectile.boomerangReleaseSpeed,
+                    projectile.boomerangReturnSpeed + deceleration * dt);
+                if (length <= projectile.boomerangReturnSpeed * dt +
+                    kPlayerSize * 0.5f) {
+                    projectile.distance = -1;
+                    continue;
+                }
+                projectile.vx = dx / length *
+                    projectile.boomerangReturnSpeed;
+                projectile.vy = dy / length *
+                    projectile.boomerangReturnSpeed;
             }
             projectile.x += projectile.vx * dt;
             projectile.y += projectile.vy * dt;
@@ -1498,6 +1607,36 @@ void UpdateProjectilesAndBombs(float dt) {
                     projectile.boomerangHitSpawners.push_back(
                         static_cast<int>(index));
                 }
+            for (std::size_t index = 0; index < textBoxes.size(); ++index) {
+                if (!Overlaps(shot, textBoxes[index].rect) ||
+                    std::find(
+                        projectile.boomerangHitTextBoxes.begin(),
+                        projectile.boomerangHitTextBoxes.end(),
+                        static_cast<int>(index)) !=
+                        projectile.boomerangHitTextBoxes.end())
+                    continue;
+                bool organEdited = false;
+                const bool changedLevel = DamageTextBox(
+                    textBoxes[index], CenterX(shot), &organEdited);
+                const bool startGame =
+                    MainMenuActive() && textBoxes[index].startGame;
+                projectile.boomerangHitTextBoxes.push_back(
+                    static_cast<int>(index));
+                SaveMutations();
+                if (startGame) TriggerMainMenuStart();
+                if (organEdited) UnlockInteriorPortals();
+                if (changedLevel)
+                    pendingLevelSelection = true;
+                else if (!MainMenuActive())
+                    RebuildGameplayTextBoxes();
+                break;
+            }
+            if (!projectile.boomerangHitSpecialControl)
+                projectile.boomerangHitSpecialControl =
+                    HitSpecialControl(shot);
+            if (!projectile.boomerangHitShop)
+                projectile.boomerangHitShop = HitShopOffer(shot);
+            HitRoomWall(shot);
             continue;
         }
         HomeProjectile(projectile);
@@ -1640,7 +1779,14 @@ void FinalizeFrame(int activeRoom) {
             const std::uint64_t sequence = run.deathSequence++;
             const std::uint64_t drop = DeriveRunSeed(
                 run.globalSeed, 0x44524f50ULL, sequence);
-            if (rewardsEnabled && drop % 20 == 0) {
+            if (rewardsEnabled &&
+                drop % rogueliteTuning.healthPickupDropChance == 0) {
+                node->pickups.push_back({
+                    PickupType::Health,
+                    UpgradeType::MaxHealth, 1,
+                    enemy.x, enemy.y, false});
+            } else if (rewardsEnabled &&
+                       drop % rogueliteTuning.powerupDropChance == 0) {
                 static const PickupType pickupTypes[]{
                     PickupType::Multishot, PickupType::Homing,
                     PickupType::AutoRocket};
@@ -1697,6 +1843,8 @@ void Update(float dt) {
         UpdateMainMenu(dt);
         return;
     }
+    UpdateShopPurchases(dt);
+    UpdateDebugInteractions(dt);
     UpdatePlayerWeapons(dt);
     UpdatePlayerInteriorAlteration(dt);
     const int activeRoom = RunArenaMode() ? 0 : CurrentRoom();

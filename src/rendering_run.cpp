@@ -6,6 +6,7 @@
 #include "rendering_internal.h"
 #include "roguelite.h"
 #include "text_renderer.h"
+#include "world.h"
 
 namespace game {
 
@@ -53,6 +54,29 @@ bool IsReachableRunNode(RunNodeId id) {
     const RunNode* current = CurrentRunNode();
     return current && std::find(
         current->next.begin(), current->next.end(), id) != current->next.end();
+}
+
+void DrawHealthSprite(int x, int y, float alpha) {
+    const auto found = types.find("player");
+    if (found == types.end() || found->second.sprite.empty()) return;
+    const auto& sprite = found->second.sprite;
+    std::size_t columns = 0;
+    for (const auto& row : sprite) columns = std::max(columns, row.size());
+    const std::size_t units = std::max(columns, sprite.size());
+    if (units == 0) return;
+    const float scale = 14.0f / static_cast<float>(units);
+    for (std::size_t row = 0; row < sprite.size(); ++row)
+        for (std::size_t column = 0;
+             column < sprite[row].size(); ++column) {
+            const Pixel& pixel = sprite[row][column];
+            if (!pixel.occupied) continue;
+            DrawRectangleAlpha(
+                static_cast<int>(x + column * scale),
+                static_cast<int>(y + row * scale),
+                std::max(1, static_cast<int>(std::ceil(scale))),
+                std::max(1, static_cast<int>(std::ceil(scale))),
+                CompositeColor(pixel), alpha);
+        }
 }
 
 }  // namespace
@@ -117,7 +141,8 @@ void DrawRunMap() {
 }
 
 void DrawPickupIcon(PickupType type, float x, float y) {
-    const char* id = type == PickupType::Multishot
+    const char* id = type == PickupType::Health
+        ? "powerup_health" : type == PickupType::Multishot
         ? "powerup_multishot" : type == PickupType::Homing
         ? "powerup_homing" : "powerup_auto_rocket";
     const auto found = wallAssets.find(id);
@@ -280,6 +305,8 @@ void DrawRunArena() {
             const ShopOffer& offer = node->shopOffers[index];
             const Rect target = ShopOfferTarget(index);
             DrawWorldRect(target, offer.purchased ? 0x00252A30 : 0x00204460);
+            const Rect purchase = ShopOfferPurchaseArea(index);
+            DrawWorldRect(purchase, offer.purchased ? 0x00252A30 : 0x00502070);
             const std::string value = offer.kind == ShopOfferKind::Upgrade
                 ? ShortNumber(UpgradeCurrentValue(offer.upgrade))
                 : (offer.purchased ? "EQUIPPED" : "REPLACES SLOT");
@@ -298,6 +325,18 @@ void DrawRunArena() {
                     text_renderer::MeasureWidth(value.size()) * 0.5f -
                     CameraX()),
                 static_cast<int>(target.y + 52 - CameraY()), 0x00FFFFFF);
+            const float progress = std::clamp(
+                offer.purchaseTimer /
+                    std::max(0.01f, rogueliteTuning.shopPurchaseSeconds),
+                0.0f, 1.0f);
+            DrawTextString(
+                offer.purchased ? "OWNED" : "STAND HERE",
+                static_cast<int>(CenterX(purchase) -
+                    text_renderer::MeasureWidth(
+                        offer.purchased ? 5 : 10) * 0.5f - CameraX()),
+                static_cast<int>(purchase.y + 32 - CameraY()), 0x00FFFFFF);
+            DrawWorldRect({purchase.x + 12, purchase.y + 88,
+                (purchase.width - 24) * progress, 12}, 0x00FFFFFF);
         }
         const Rect reset = ResetWordsTarget();
         DrawWorldRect(reset, 0x00204460);
@@ -324,7 +363,22 @@ void DrawRunArena() {
                 static_cast<int>(target.y - 30 - CameraY()), 0x00FFFFFF);
             DrawTextString(
                 "VALUE " + ShortNumber(UpgradeCurrentValue(upgrades[index])) +
-                    "  FREE TEST",
+                    "  STAND HERE TO BUY",
+                static_cast<int>(target.x - CameraX()),
+                static_cast<int>(target.y + 25 - CameraY()), 0x00FFFFFF);
+        }
+        for (std::size_t index = 0;
+             index < playerInteriorState.permanent.size(); ++index) {
+            const Rect target = DebugLimiterTarget(index);
+            const bool off = playerInteriorState.permanent[index];
+            DrawWorldRect(target, off ? 0x00252A30 : 0x00502070);
+            DrawTextString(
+                PlayerAlterationName(static_cast<PlayerAlteration>(index + 3)),
+                static_cast<int>(target.x - CameraX()),
+                static_cast<int>(target.y - 30 - CameraY()), 0x00FFFFFF);
+            DrawTextString(
+                off ? "OFF  STAND HERE TO TOGGLE" :
+                    "ON  STAND HERE TO TOGGLE",
                 static_cast<int>(target.x - CameraX()),
                 static_cast<int>(target.y + 25 - CameraY()), 0x00FFFFFF);
         }
@@ -334,7 +388,8 @@ void DrawRunArena() {
             const Rect target = DebugSpawnerTarget(index);
             DrawWorldRect(target, 0x00204460);
             const std::string label = std::string(enemyNames[index]) +
-                (DebugSpawnerEnabled(index) ? " ON" : " OFF");
+                (DebugSpawnerEnabled(index) ? " ON - STAND HERE" :
+                    " OFF - STAND HERE");
             DrawTextString(
                 label, static_cast<int>(target.x - CameraX()),
                 static_cast<int>(target.y + 22 - CameraY()), 0x00FFFFFF);
@@ -373,7 +428,7 @@ void DrawRunArena() {
             DrawWorldRect(target, equipped ? 0x00406020 : 0x00204460);
             const std::string label =
                 std::string(weaponNames[index]) +
-                (equipped ? " EQUIPPED" : " EQUIP");
+                (equipped ? " EQUIPPED" : " STAND HERE TO EQUIP");
             DrawTextString(
                 label, static_cast<int>(target.x - CameraX()),
                 static_cast<int>(target.y + 22 - CameraY()), 0x00FFFFFF);
@@ -381,12 +436,73 @@ void DrawRunArena() {
     }
 }
 
+void DrawInteriorMinimap(const RunNode& node) {
+    const bool interiorNode = node.type == RunNodeType::Interior ||
+        node.type == RunNodeType::PlayerInterior ||
+        node.type == RunNodeType::BossInterior;
+    if (node.hardArena && !interiorNode) return;
+
+    int minRow = 0, maxRow = 0, minColumn = 0, maxColumn = 0;
+    bool haveRoom = false;
+    for (const Room& room : rooms) {
+        if (room.distance < 0) continue;
+        if (!haveRoom) {
+            minRow = maxRow = room.row;
+            minColumn = maxColumn = room.column;
+            haveRoom = true;
+        } else {
+            minRow = std::min(minRow, room.row);
+            maxRow = std::max(maxRow, room.row);
+            minColumn = std::min(minColumn, room.column);
+            maxColumn = std::max(maxColumn, room.column);
+        }
+    }
+    if (!haveRoom) return;
+
+    const int rows = maxRow - minRow + 1;
+    const int columns = maxColumn - minColumn + 1;
+    const int cell = std::max(3, std::min(12,
+        std::min(180 / rows, 220 / columns)));
+    const int width = columns * cell + 8;
+    const int height = rows * cell + 8;
+    const int left = 12;
+    const int top = buffer.height - height - 12;
+    DrawRectangle(left - 2, top - 2, width + 4, height + 4, 0x00070B11);
+    DrawRectangle(left, top, width, height, 0x00252A30);
+
+    const int playerRoom = CurrentRoom();
+    for (int index = 0; index < static_cast<int>(rooms.size()); ++index) {
+        const Room& room = rooms[index];
+        if (room.distance < 0) continue;
+        const int x = left + 4 + (room.column - minColumn) * cell;
+        const int y = top + 4 + (room.row - minRow) * cell;
+        const bool isPlayer = index == playerRoom;
+        DrawRectangle(x, y, cell - 1, cell - 1,
+            isPlayer ? 0x00FFFFFF : 0x0060C0D0);
+    }
+}
+
 void DrawRunHud() {
     const RunNode* current = CurrentRunNode();
     if (!current) return;
     DrawRectangle(0, 0, buffer.width, 86, 0x00070B11);
-    DrawTextString(
-        "HEALTH " + std::to_string(playerHealth), 12, 10, 0x00FFFFFF);
+    const float regenerationProgress =
+        playerInteriorState.permanent[0] &&
+        playerHealth < EffectivePlayerMaxHealth()
+        ? std::clamp(
+            run.regenerationTimer / std::max(
+                0.1f, playerInteriorState.values[3] / 10.0f),
+            0.0f, 1.0f)
+        : 0.0f;
+    const std::string healthLabel = "HEALTH";
+    DrawTextString(healthLabel, 12, 10, 0x00FFFFFF);
+    const int healthX = 24 + text_renderer::MeasureWidth(healthLabel.size());
+    for (int index = 0; index < EffectivePlayerMaxHealth(); ++index) {
+        float alpha = index < playerHealth ? 1.0f : 0.15f;
+        if (index == playerHealth && regenerationProgress > 0.0f)
+            alpha = 0.15f + regenerationProgress * 0.85f;
+        DrawHealthSprite(healthX + index * 22, 9, alpha);
+    }
     const std::string weapons =
         std::string(PrimaryWeaponName(run.primaryWeapon)) + " / " +
         SecondaryWeaponName(run.secondaryWeapon);
@@ -447,6 +563,7 @@ void DrawRunHud() {
             "YOU WON",
             (buffer.width - text_renderer::MeasureWidth(7)) / 2,
             64, 0x00FFFFFF);
+    DrawInteriorMinimap(*current);
 }
 
 }  // namespace game

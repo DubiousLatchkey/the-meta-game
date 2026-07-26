@@ -422,8 +422,33 @@ void DrawProjectileVisual(const Projectile& projectile) {
             constexpr float scale = 3.0f;
             const float centerX = projectile.x + projectile.width * 0.5f;
             const float centerY = projectile.y + projectile.width * 0.5f;
+            if (!projectile.boomerang) {
+                const float speed = std::sqrt(
+                    projectile.vx * projectile.vx +
+                    projectile.vy * projectile.vy);
+                if (speed > 0.01f)
+                    for (int index = 0; index < 3; ++index) {
+                        const float phase =
+                            projectile.distance * 0.08f + index * 2.2f;
+                        const float behind = 12.0f + index * 6.0f +
+                            std::sin(phase) * 2.0f;
+                        const float sideways = std::cos(phase * 1.7f) *
+                            (2.0f + index);
+                        DrawWorldRect({
+                            centerX - projectile.vx / speed * behind -
+                                projectile.vy / speed * sideways,
+                            centerY - projectile.vy / speed * behind +
+                                projectile.vx / speed * sideways,
+                            2.0f, 2.0f},
+                            index == 0 ? 0x00FF3030 : 0x00C02020);
+                    }
+            }
             const int rotation = projectile.boomerang
-                ? static_cast<int>(projectile.distance / 18.0f) % 4 : 0;
+                ? static_cast<int>(projectile.distance / 54.0f) % 4 : 0;
+            const float rocketAngle = projectile.boomerang ? 0.0f :
+                std::atan2(projectile.vy, projectile.vx) + kPi * 0.5f;
+            const float cosine = std::cos(rocketAngle);
+            const float sine = std::sin(rocketAngle);
             for (std::size_t row = 0; row < asset->second.sprite.size(); ++row)
                 for (std::size_t column = 0;
                      column < asset->second.sprite[row].size(); ++column) {
@@ -443,10 +468,18 @@ void DrawProjectileVisual(const Projectile& projectile) {
                         x = static_cast<int>(row);
                         y = 4 - static_cast<int>(column);
                     }
+                    float localX = (static_cast<float>(x) - 2.5f) * scale;
+                    float localY = (static_cast<float>(y) - 3.5f) * scale;
+                    if (!projectile.boomerang) {
+                        const float rotatedX =
+                            cosine * localX - sine * localY;
+                        const float rotatedY =
+                            sine * localX + cosine * localY;
+                        localX = rotatedX;
+                        localY = rotatedY;
+                    }
                     DrawWorldRect(
-                        {centerX + (static_cast<float>(x) - 2.5f) * scale,
-                         centerY + (static_cast<float>(y) - 3.5f) * scale,
-                         scale, scale},
+                        {centerX + localX, centerY + localY, scale, scale},
                         CompositeColor(pixel));
                 }
             return;
@@ -743,14 +776,14 @@ void Render(HWND window) {
             return DeriveRunSeed(runNode->seed, 0x504c41594552ULL, first) <
                 DeriveRunSeed(runNode->seed, 0x504c41594552ULL, second);
         });
-        for (int alteration = 0; alteration < 9; ++alteration) {
+        for (int slot = 0; slot < 8; ++slot) {
+            const int alteration = slot + 3;
             const bool selected =
                 runNode->playerInteriorAlteration == alteration;
             if (runNode->playerInteriorAlteration >= 0 && !selected)
                 continue;
-            const Rect target = PlayerAlterationTarget(order[alteration]);
-            const bool taken = alteration >= 3 &&
-                playerInteriorState.permanent[alteration - 3];
+            const Rect target = PlayerAlterationTarget(order[slot]);
+            const bool taken = playerInteriorState.permanent[alteration - 3];
             const float fade = !selected ? 1.0f : std::clamp(
                 runNode->playerInteriorAlterationTimer /
                     kPlayerAlterationFadeSeconds,
@@ -772,11 +805,10 @@ void Render(HWND window) {
                     text_renderer::kGlyphHeight -
                     text_renderer::kGlyphAdvance * 0.5f - CameraY()),
                 textColor);
-            const std::string number = std::to_string(PlayerAlterationValue(
-                static_cast<PlayerAlteration>(alteration)));
-            DrawTextString(number,
+            const std::string state = taken ? "OFF" : "ON";
+            DrawTextString(state,
                 static_cast<int>(CenterX(target) -
-                    text_renderer::MeasureWidth(number.size()) * 0.5f -
+                    text_renderer::MeasureWidth(state.size()) * 0.5f -
                     CameraX()),
                 static_cast<int>(CenterY(target) +
                     text_renderer::kGlyphAdvance * 0.5f - CameraY()),

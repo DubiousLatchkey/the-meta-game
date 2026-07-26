@@ -22,8 +22,10 @@ std::array<int, 9> PlayerAlterationRooms(const RunNode& node) {
 PlayerAlteration AlterationForRoom(const RunNode& node, int room) {
     const auto order = PlayerAlterationRooms(node);
     const auto found = std::find(order.begin(), order.end(), room);
-    return static_cast<PlayerAlteration>(
-        std::distance(order.begin(), found));
+    const int slot = static_cast<int>(std::distance(order.begin(), found));
+    return slot < 8
+        ? static_cast<PlayerAlteration>(slot + 3)
+        : PlayerAlteration::Count;
 }
 
 Rect PlayerAlterationNumberTarget(int room) {
@@ -88,19 +90,16 @@ bool HitPlayerAlteration(const Rect& shot) {
         if (!Overlaps(shot, PlayerAlterationNumberTarget(room))) continue;
         const PlayerAlteration alteration = AlterationForRoom(*node, room);
         const int value = static_cast<int>(alteration);
-        if (value >= 3 && playerInteriorState.permanent[value - 3])
+        if (alteration == PlayerAlteration::Count ||
+            playerInteriorState.permanent[value - 3])
             return true;
-        if (value < 3)
-            ++playerInteriorState.repeatableRanks[value];
-        else
-            playerInteriorState.permanent[value - 3] = true;
-        if (value < 2)
-            --playerInteriorState.values[value];
-        else
+        playerInteriorState.permanent[value - 3] = true;
+        if (value < static_cast<int>(playerInteriorState.values.size()))
             playerInteriorState.values[value] = std::max(
                 0, playerInteriorState.values[value] - 1);
         if (alteration == PlayerAlteration::Regeneration)
-            playerHealth = std::min(kPlayerMaxHealth, playerHealth + 1);
+            playerHealth = std::min(
+                EffectivePlayerMaxHealth(), playerHealth + 1);
         node->playerInteriorAlteration = value;
         node->playerInteriorAlterationRoom = room;
         node->playerInteriorAlterationTimer =
@@ -136,17 +135,17 @@ Rect PlayerAlterationTarget(int room) {
 
 const char* PlayerAlterationName(PlayerAlteration alteration) {
     static constexpr const char* names[]{
-        "MOVE SPEED", "FIRE INTERVAL", "EXTRA PROJECTILE",
-        "REGENERATION", "INFINITE MULTISHOT", "INFINITE HOMING",
-        "INFINITE AUTO ROCKET", "STANDARD + RAILGUN",
-        "BOMB + HOMING ROCKET"};
+        "", "", "",
+        "REGENERATION LIMITER", "MULTISHOT LIMITER", "HOMING LIMITER",
+        "AUTO ROCKET LIMITER", "PRIMARY LIMITER", "SECONDARY LIMITER",
+        "EXTRA PROJECTILE LIMITER", "MULTISHOT LIMITER II"};
     const int index = static_cast<int>(alteration);
-    return index >= 0 && index < 9 ? names[index] : "ALTERATION";
+    return index >= 0 && index < 11 ? names[index] : "ALTERATION";
 }
 
 int PlayerAlterationValue(PlayerAlteration alteration) {
     const int index = static_cast<int>(alteration);
-    return index >= 0 && index < 9
+    return index >= 0 && index < static_cast<int>(playerInteriorState.values.size())
         ? playerInteriorState.values[index] : 0;
 }
 

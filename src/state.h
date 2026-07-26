@@ -154,8 +154,13 @@ struct Projectile {
     float homingLateralOffset = 0.0f;
     bool boomerang = false;
     bool returning = false;
+    float boomerangReleaseSpeed = 0.0f;
+    float boomerangReturnSpeed = 0.0f;
     std::vector<int> boomerangHitEnemies;
     std::vector<int> boomerangHitSpawners;
+    std::vector<int> boomerangHitTextBoxes;
+    bool boomerangHitSpecialControl = false;
+    bool boomerangHitShop = false;
 };
 struct EnemyProjectile {
     float x = 0, y = 0, vx = 0, vy = 0;
@@ -225,6 +230,7 @@ struct WeaponStats {
     float cadence = 0.16f;
     // Scales shared cadence upgrades into this weapon's real-time cadence.
     float cadenceEffectScale = 1.0f;
+    float decelerationScale = 1.0f;
     float speed = 620.0f;
     float range = 1200.0f;
     float spread = 0.14f;
@@ -325,6 +331,7 @@ enum class UpgradeType {
     ProjectileDamage,
     BombCooldown,
     Invincibility,
+    ExtraProjectile,
 };
 enum class PrimaryWeapon {
     Standard,
@@ -346,11 +353,13 @@ enum class PlayerAlteration {
     InfiniteAutoRocket,
     DualPrimary,
     DualSecondary,
+    ExtraProjectileLimiter,
+    SecondMultishot,
     Count,
 };
 struct PlayerInteriorState {
     std::array<std::uint32_t, 3> repeatableRanks{};
-    std::array<bool, 6> permanent{};
+    std::array<bool, 8> permanent{};
     std::array<bool, 12> brokenDoorways{};
     std::array<int, 9> values{{5, 5, 100, 51, 3, 1, 1001, 1, 1}};
 };
@@ -392,6 +401,7 @@ struct ShopOffer {
     SecondaryWeapon secondaryWeapon = SecondaryWeapon::Bomb;
     std::uint32_t price = 0;
     bool purchased = false;
+    float purchaseTimer = 0;
 };
 struct RunNode {
     RunNodeId id = kInvalidRunNode;
@@ -442,6 +452,8 @@ struct RunData {
     float autoRocketCooldown = 0;
     PrimaryWeapon primaryWeapon = PrimaryWeapon::Standard;
     SecondaryWeapon secondaryWeapon = SecondaryWeapon::Bomb;
+    std::array<bool, 3> primaryWeapons{{true, false, false}};
+    std::array<bool, 3> secondaryWeapons{{true, false, false}};
     float primaryCharge = 0;
     float railAimX = 1;
     float railAimY = 0;
@@ -455,7 +467,10 @@ struct RogueliteTuning {
     std::uint32_t branchNodesMax = 4;
     std::uint32_t extraBranchEdges = 2;
     std::uint32_t fullAudioWallChancePercent = 50;
+    std::uint32_t healthPickupDropChance = 10;
+    std::uint32_t powerupDropChance = 20;
     std::uint32_t shopPrice = 5;
+    float shopPurchaseSeconds = 1.0f;
     std::uint32_t arenaWaves = 3;
     std::uint32_t interiorWaves = 2;
     float waveCooldown = 1.5f;
