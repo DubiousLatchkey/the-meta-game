@@ -4,6 +4,7 @@
 #include <array>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -23,6 +24,69 @@ namespace game {
 namespace {
 
 std::vector<std::vector<std::uint8_t>> pristineWordBytes;
+std::map<std::string, double> worldConstantOverrides;
+
+bool IntegerKey(const std::string& key, lua_Integer& value) {
+    char* end = nullptr;
+    const long long parsed = std::strtoll(key.c_str(), &end, 10);
+    if (!end || *end != '\0') return false;
+    value = static_cast<lua_Integer>(parsed);
+    return true;
+}
+
+void LoadWorldConstantOverrides() {
+    worldConstantOverrides.clear();
+    std::ifstream input(gameDirectory / "mutations.lua");
+    std::string line;
+    while (std::getline(input, line)) {
+        char path[256]{};
+        double value = 0;
+        if (sscanf_s(
+                line.c_str(), "set_world_constant(\"%255[^\"]\", %lf)",
+                path, static_cast<unsigned>(_countof(path)), &value) == 2)
+            worldConstantOverrides[path] = value;
+    }
+}
+
+void ApplyWorldConstantOverrides(lua_State* lua, int root) {
+    root = lua_absindex(lua, root);
+    for (const auto& [path, value] : worldConstantOverrides) {
+        std::vector<std::string> parts;
+        std::size_t start = 0;
+        while (start <= path.size()) {
+            const std::size_t dot = path.find('.', start);
+            parts.push_back(path.substr(
+                start, dot == std::string::npos
+                    ? std::string::npos : dot - start));
+            if (dot == std::string::npos) break;
+            start = dot + 1;
+        }
+        if (parts.empty()) continue;
+        lua_pushvalue(lua, root);
+        bool valid = true;
+        for (std::size_t index = 0; index + 1 < parts.size(); ++index) {
+            lua_Integer integerKey = 0;
+            if (IntegerKey(parts[index], integerKey))
+                lua_rawgeti(lua, -1, integerKey);
+            else
+                lua_getfield(lua, -1, parts[index].c_str());
+            lua_remove(lua, -2);
+            if (!lua_istable(lua, -1)) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) {
+            lua_pushnumber(lua, value);
+            lua_Integer integerKey = 0;
+            if (IntegerKey(parts.back(), integerKey))
+                lua_rawseti(lua, -2, integerKey);
+            else
+                lua_setfield(lua, -2, parts.back().c_str());
+        }
+        lua_pop(lua, 1);
+    }
+}
 
 std::string ConstantLabel(const std::string& path) {
     std::string result;
@@ -82,7 +146,8 @@ void ReadConstantTable(
                        lua_isboolean(lua, -1) ||
                        lua_isstring(lua, -1)) {
                 result.push_back({
-                    ConstantLabel(path), LuaScalarText(lua, -1)});
+                    path, ConstantLabel(path), LuaScalarText(lua, -1),
+                    lua_isnumber(lua, -1) != 0});
             }
         }
         lua_pop(lua, 1);
@@ -205,6 +270,8 @@ std::vector<std::vector<Pixel>> ReadSprite(lua_State* lua, int table) {
 }
 
 bool LoadWorldScript(const std::filesystem::path& path) {
+    if (path == gameDirectory / "world.lua")
+        LoadWorldConstantOverrides();
     lua_State* lua = luaL_newstate();
     if (!lua) return false;
     luaL_requiref(lua, "_G", luaopen_base, 1);
@@ -220,6 +287,8 @@ bool LoadWorldScript(const std::filesystem::path& path) {
     }
 
     const int root = lua_absindex(lua, -1);
+    if (path == gameDirectory / "world.lua")
+        ApplyWorldConstantOverrides(lua, root);
     std::vector<Word> loadedWords;
     std::map<std::string, int> loadedWordIds;
     std::map<const void*, int> wordPointers;
@@ -694,6 +763,7 @@ bool LoadWorldScript(const std::filesystem::path& path) {
         !loadedPhrases.count("main_title") ||
         !loadedPhrases.count("start_game") ||
         !loadedPhrases.count("spawn_herd_modifier") ||
+        !loadedWordIds.count("portal_continue_descent") ||
         !loadedPlayerInteriorScaling ||
         loadedWorldConstants.empty() ||
         loadedOrgans.size() != 8 || loadedGlyphCount < 94 ||
@@ -903,6 +973,7 @@ bool LoadGoldenWorldForTools() {
 void SaveMutations() {
     std::ofstream output(gameDirectory / "mutations.lua", std::ios::trunc);
     output << "-- Generated persistent cosmetic and Player Internals state.\n";
+    output << "local function set_world_constant(path,value) end\n";
     output << "local function set_pixel(enemy,row,column,r,g,b) end\n";
     output << "local function set_asset_pixel(asset,row,column,r,g,b) end\n";
     output << "local function set_glyph(character,row,column,r,g,b) end\n";
@@ -913,6 +984,10 @@ void SaveMutations() {
     output << "local function set_player_permanent(index) end\n";
     output << "local function set_player_value(index,value) end\n";
     output << "local function set_player_doorway(index) end\n";
+    output << std::setprecision(17);
+    for (const auto& [path, value] : worldConstantOverrides)
+        output << "set_world_constant(\"" << path << "\", "
+               << value << ")\n";
     for (const auto& [id, type] : types)
         for (std::size_t row = 0; row < type.sprite.size(); ++row)
             for (std::size_t column = 0;
@@ -971,6 +1046,20 @@ void SaveMutations() {
             output << "set_player_doorway(" << index << ")\n";
 }
 
+bool DecrementWorldConstant(std::size_t index) {
+    if (index >= worldConstants.size() || !worldConstants[index].numeric)
+        return false;
+    char* end = nullptr;
+    const double current =
+        std::strtod(worldConstants[index].value.c_str(), &end);
+    if (!end || *end != '\0') return false;
+    worldConstantOverrides[worldConstants[index].path] = current - 1.0;
+    SaveMutations();
+    if (!LoadWorldScript(gameDirectory / "world.lua")) return false;
+    ApplyMutations();
+    return true;
+}
+
 void ResetWordMutations() {
     for (std::size_t index = 0; index < pristineWordBytes.size(); ++index)
         words[index].bytes = pristineWordBytes[index];
@@ -987,6 +1076,7 @@ bool ReloadWorld(bool reset) {
         if (!CopyGoldenWorld(true)) return false;
         playerInteriorState = PlayerInteriorState{};
         playerInteriorState.values = playerInteriorDefaults;
+        worldConstantOverrides.clear();
         std::error_code ignored;
         std::filesystem::remove(
             gameDirectory / "mutations.lua", ignored);
@@ -995,9 +1085,9 @@ bool ReloadWorld(bool reset) {
     }
     if (!CopyGoldenWorld(false)) return false;
     if (!LoadWorldScript(gameDirectory / "world.lua")) {
-        if (!LoadWorldScript(goldenDirectory / "world.lua"))
-            return false;
         if (!CopyGoldenWorld(true)) return false;
+        if (!LoadWorldScript(gameDirectory / "world.lua"))
+            return false;
     }
     playerInteriorState = PlayerInteriorState{};
     playerInteriorState.values = playerInteriorDefaults;

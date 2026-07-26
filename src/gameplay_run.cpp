@@ -11,6 +11,28 @@
 
 namespace game {
 
+namespace {
+
+bool IsBossLevel(int level) {
+    return level <= 0 && (-level) % 10 == 0;
+}
+
+std::uint32_t DownsideStatCount(int level) {
+    return level <= 1 ? 3U : 1U;
+}
+
+std::uint32_t DownsideAmount(int level) {
+    if (level >= 5) return 1;
+    if (level >= 0) return 2;
+    const int magnitude = -level;
+    const int digit = magnitude % 10;
+    return static_cast<std::uint32_t>(
+        2 + magnitude / 10 + (digit >= 5 ? 1 : 0) +
+        (digit >= 9 ? 1 : 0));
+}
+
+}  // namespace
+
 int SpawnerReward(const std::string& type) {
     if (type == "triangle") return 1;
     if (type == "charger") return 2;
@@ -60,9 +82,13 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
     if (found != playerWeapons.end()) result = found->second;
     const std::uint32_t fireRanks =
         UpgradeRank(UpgradeType::FireRate);
+    // Rail charge speed scales at half the rate of projectile fire speed:
+    // two railgun ranks produce the same multiplier as one projectile rank.
+    const float fireRateRanks = static_cast<float>(fireRanks) *
+        (id == "railgun" ? 0.5f : 1.0f);
     result.cadence = std::max(
-        0.05f, result.cadence -
-            0.025f * result.cadenceEffectScale * fireRanks);
+        0.05f, result.cadence /
+            std::pow(1.1f, fireRateRanks));
     if (id == "bomb" || id == "contact_bomb" || id == "homing_rocket")
         result.cadence = std::max(
             0.05f, result.cadence -
@@ -77,7 +103,7 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
     if (run.multishotRemaining > 0)
         result.count += 2;
     if (playerInteriorState.permanent[1])
-        result.count += std::max(0, 3 - playerInteriorState.values[4]);
+        result.count += std::max(1, 3 - playerInteriorState.values[4]);
     if (playerInteriorState.permanent[7])
         ++result.count;
     if (run.homingRemaining > 0 ||
@@ -130,7 +156,7 @@ std::string ThreatWeightedInteriorArchetype(std::uint64_t seed) {
 }
 
 RunNodeId AppendChoiceNode(
-    RunNodeId sourceId, RunNodeType type, std::uint32_t level,
+    RunNodeId sourceId, RunNodeType type, int level,
     std::uint64_t seed, std::size_t slot) {
     RunNode choice;
     choice.id = static_cast<RunNodeId>(run.nodes.size());
@@ -176,14 +202,44 @@ Rect ArenaChoicePortalRect(std::size_t index, std::size_t count) {
     return cardinal[index % cardinal.size()];
 }
 
+void BuildPostBossPortals(RunNode& node) {
+    const RunNodeId sourceId = node.id;
+    const int nextLevel = node.depth - 1;
+    node.portals.clear();
+    node.next.clear();
+    const RunNodeId continuation = AppendChoiceNode(
+        sourceId, RunNodeType::EnemyArena, nextLevel,
+        DeriveRunSeed(node.seed, 0x434f4e54494e5545ULL), 0);
+    RunNode& source = run.nodes[sourceId];
+
+    constexpr float size = 72.0f;
+    constexpr float gap = 22.0f;
+    const float left = run.boss.centerX - size - gap * 0.5f;
+    const float top = run.boss.centerY - size * 0.5f;
+
+    RunPortal tuning;
+    tuning.active = true;
+    tuning.postBossTuning = true;
+    tuning.direction = PortalDirection::West;
+    tuning.interiorTrigger = {left, top, size, size};
+    source.portals.push_back(tuning);
+
+    RunPortal onward;
+    onward.destination = continuation;
+    onward.active = true;
+    onward.continueRun = true;
+    onward.direction = PortalDirection::East;
+    onward.interiorTrigger = {left + size + gap, top, size, size};
+    source.portals.push_back(onward);
+}
+
 void BuildArenaChoicePortals(RunNode& node) {
     const RunNodeId sourceId = node.id;
-    const std::uint32_t sourceLevel = node.depth;
+    const int sourceLevel = node.depth;
     const std::uint64_t sourceSeed = node.seed;
     std::vector<RunNodeType> choices;
-    const std::uint32_t nextLevel =
-        sourceLevel > 0 ? sourceLevel - 1 : 0;
-    if (nextLevel == 0) {
+    const int nextLevel = sourceLevel - 1;
+    if (IsBossLevel(nextLevel)) {
         choices = {RunNodeType::Boss, RunNodeType::Shop};
     } else {
         const std::uint64_t roll =
@@ -196,7 +252,9 @@ void BuildArenaChoicePortals(RunNode& node) {
             ? 0 : run.arenasWithoutEnemyInterior + 1;
         if ((roll >> 8) % 4 == 0)
             choices.push_back(RunNodeType::BossInterior);
-        if ((roll >> 16) % 7 == 0)
+        const std::uint64_t playerInteriorRoll = (roll >> 16) % 7;
+        const bool earlyDepth = sourceLevel >= 5 && sourceLevel <= 10;
+        if (playerInteriorRoll < (earlyDepth ? 2ULL : 1ULL))
             choices.push_back(RunNodeType::PlayerInterior);
         if ((roll >> 24) % 10 != 0)
             choices.push_back(RunNodeType::Shop);
@@ -233,15 +291,17 @@ void BuildInteriorArenaDestinations(RunNode& node) {
     const RunNodeId sourceId = node.id;
     const std::uint64_t sourceSeed = node.seed;
     const std::size_t portalCount = node.portals.size();
-    const std::uint32_t nextLevel =
-        node.depth > 0 ? node.depth - 1 : 0;
+    const int nextLevel = node.depth - 1;
+    const RunNodeType destinationType =
+        IsBossLevel(nextLevel)
+            ? RunNodeType::Boss : RunNodeType::EnemyArena;
     run.nodes.reserve(run.nodes.size() + portalCount);
     run.nodes[sourceId].next.clear();
     for (std::size_t index = 0; index < portalCount; ++index) {
         RunPortal& portal = run.nodes[sourceId].portals[index];
         if (portal.destination != kInvalidRunNode) continue;
         portal.destination = AppendChoiceNode(
-            sourceId, RunNodeType::EnemyArena, nextLevel,
+            sourceId, destinationType, nextLevel,
             DeriveRunSeed(sourceSeed, 0x494e5445584954ULL, index), index);
         run.nodes[sourceId].portals[index].armed = false;
     }
@@ -357,11 +417,24 @@ void ApplyArenaDownside(RunNode& node) {
     }
     static constexpr const char* enemyArchetypes[]{
         "circle", "triangle", "charger", "shooter"};
-    const std::uint32_t downsideIncrease =
-        node.depth >= 9 ? 3u : node.depth > 5 ? 2u : 1u;
+    std::vector<EnemyDifficultyStat> increases{node.downside};
+    const std::uint32_t targetStatCount = DownsideStatCount(node.depth);
+    if (targetStatCount > 1) {
+        constexpr int totalStatCount = 8;
+        for (int offset = 1; increases.size() < targetStatCount; ++offset) {
+            const auto candidate = static_cast<EnemyDifficultyStat>(
+                DeriveRunSeed(node.seed, 0x3344494646535441ULL, offset) %
+                totalStatCount);
+            if (std::find(increases.begin(), increases.end(), candidate) ==
+                increases.end())
+                increases.push_back(candidate);
+        }
+    }
+    const std::uint32_t amount = DownsideAmount(node.depth);
     for (const char* archetype : enemyArchetypes)
         if (types.count(archetype))
-            MutableEnemyStage(archetype, node.downside) += downsideIncrease;
+            for (EnemyDifficultyStat stat : increases)
+                MutableEnemyStage(archetype, stat) += amount;
     node.downsideApplied = true;
 }
 
@@ -511,6 +584,7 @@ void AppendPortalTextBoxes() {
         if (!destination) continue;
         const std::string archetype = destination->arenaArchetype;
         const std::string labelId =
+            portal.continueRun ? "portal_continue_descent" :
             destination->type == RunNodeType::EnemyArena
                 ? "portal_" + archetype + "_arena" :
             destination->type == RunNodeType::Interior
@@ -524,12 +598,27 @@ void AppendPortalTextBoxes() {
         const int labelWord = coreWord(labelId);
         if (labelWord >= 0) portal.labelWord = labelWord;
         const bool hasDetail =
-            destination->type == RunNodeType::EnemyArena;
+            destination->type == RunNodeType::EnemyArena &&
+            !portal.continueRun;
         if (hasDetail) {
             portal.detailWord = coreWord("portal_all_enemy");
-            const int detailWord =
-                coreWord(detailWordId(destination->downside));
+            const std::uint32_t amount =
+                DownsideAmount(destination->depth);
+            const int detailWord = DownsideStatCount(destination->depth) > 1
+                ? coreWord("portal_three_stats_up")
+                : coreWord(detailWordId(destination->downside));
             if (detailWord >= 0) portal.detailWord2 = detailWord;
+            if (amount > 1) {
+                portal.detailWord3 = coreWord("portal_multiplier");
+                if (portal.detailWord3 >= 0) {
+                    const std::string multiplier =
+                        "X" + std::to_string(amount);
+                    words[portal.detailWord3].bytes.assign(
+                        multiplier.begin(), multiplier.end());
+                }
+            } else {
+                portal.detailWord3 = -1;
+            }
         }
         const Rect portalRect = portal.interiorTrigger.width > 0
             ? portal.interiorTrigger : PhysicalExitPortalRect();
@@ -558,6 +647,10 @@ void AppendPortalTextBoxes() {
             ? static_cast<float>(text_renderer::MeasureWidth(
                   words[portal.detailWord2].bytes.size()))
             : 0.0f;
+        const float thirdWidth = portal.detailWord3 >= 0
+            ? static_cast<float>(text_renderer::MeasureWidth(
+                  words[portal.detailWord3].bytes.size()))
+            : 0.0f;
         if (horizontal)
             {
             addTarget(portal.detailWord, {
@@ -569,6 +662,11 @@ void AppendPortalTextBoxes() {
                 portalRect.y + portalRect.height + 16 +
                     text_renderer::kGlyphHeight + 6,
                 secondWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+            addTarget(portal.detailWord3, {
+                CenterX(portalRect) + secondWidth * 0.5f + 8.0f,
+                portalRect.y + portalRect.height + 16 +
+                    text_renderer::kGlyphHeight + 6,
+                thirdWidth, static_cast<float>(text_renderer::kGlyphHeight)});
             }
         else
             {
@@ -581,8 +679,64 @@ void AppendPortalTextBoxes() {
                 portalRect.x + portalRect.width + 18,
                 top + text_renderer::kGlyphHeight + 6,
                 secondWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+            addTarget(portal.detailWord3, {
+                portalRect.x + portalRect.width + 26 + secondWidth,
+                top + text_renderer::kGlyphHeight + 6,
+                thirdWidth, static_cast<float>(text_renderer::kGlyphHeight)});
             }
     }
+}
+
+void AppendShopTextBoxes() {
+    RunNode* node = CurrentRunNode();
+    if (!node || node->type != RunNodeType::Shop) return;
+    const auto addWord = [](const std::string& id, float x, float y) {
+        const auto found = wordIds.find(id);
+        if (found == wordIds.end()) return;
+        const float width = static_cast<float>(
+            text_renderer::MeasureWidth(words[found->second].bytes.size()));
+        textBoxes.push_back({{x, y, width,
+            static_cast<float>(text_renderer::kGlyphHeight)}, found->second});
+    };
+    const auto nameId = [](const ShopOffer& offer) {
+        if (offer.kind == ShopOfferKind::PrimaryWeapon) {
+            if (offer.primaryWeapon == PrimaryWeapon::Railgun)
+                return "shop_railgun";
+            if (offer.primaryWeapon == PrimaryWeapon::Boomerang)
+                return "shop_boomerang";
+            return "shop_standard_shot";
+        }
+        if (offer.kind == ShopOfferKind::SecondaryWeapon) {
+            if (offer.secondaryWeapon == SecondaryWeapon::HomingRocket)
+                return "shop_homing_rocket";
+            if (offer.secondaryWeapon == SecondaryWeapon::ContactBomb)
+                return "shop_contact_bomb";
+            return "shop_bomb";
+        }
+        switch (offer.upgrade) {
+            case UpgradeType::MaxHealth: return "shop_max_health";
+            case UpgradeType::MoveSpeed: return "shop_move_speed";
+            case UpgradeType::FireRate: return "shop_fire_rate";
+            case UpgradeType::ProjectileDamage: return "shop_shot_damage";
+            case UpgradeType::BombCooldown: return "shop_bomb_rate";
+            case UpgradeType::BombDamage: return "shop_bomb_damage";
+            case UpgradeType::Invincibility: return "shop_invincibility";
+            case UpgradeType::ExtraProjectile: return "shop_extra_projectile";
+        }
+        return "shop_max_health";
+    };
+    for (std::size_t index = 0; index < node->shopOffers.size(); ++index) {
+        const Rect target = ShopOfferTarget(index);
+        addWord(nameId(node->shopOffers[index]), target.x, target.y - 66);
+        addWord("shop_cost_5", target.x, target.y - 40);
+    }
+    const Rect purchase = ResetWordsPurchaseArea();
+    addWord("shop_reset_words",
+        purchase.x - text_renderer::MeasureWidth(11) - 20.0f,
+        purchase.y + 20.0f);
+    addWord("shop_cost_3",
+        purchase.x - text_renderer::MeasureWidth(12) - 20.0f,
+        purchase.y + 48.0f);
 }
 
 void RebuildGameplayTextBoxes() {
@@ -597,6 +751,7 @@ void RebuildGameplayTextBoxes() {
     else
         textBoxes.clear();
     AppendPortalTextBoxes();
+    AppendShopTextBoxes();
 }
 
 void CreateWaveSpawners(RunNode& node, std::uint32_t wave) {
@@ -649,6 +804,7 @@ void CreateWaveSpawners(RunNode& node, std::uint32_t wave) {
 
 void ConfigureNode(RunNode& node) {
     debugRoom = false;
+    postBossTuningRoom = false;
     if (legacyInteriorArchetype.empty())
         legacyInteriorArchetype = interior.archetype;
     if (legacyInteriorRoomSize == 0)
@@ -732,6 +888,33 @@ void ConfigureNode(RunNode& node) {
             }
         }
         node.portals.push_back(portal);
+    }
+    if (node.type == RunNodeType::Interior && !node.portals.empty()) {
+        RunPortal& spawnExit = node.portals.front();
+        spawnExit.active = true;
+        spawnExit.armed = false;
+        spawnExit.sourceRoom = node.interiorEntryRoom;
+        spawnExit.interiorTrigger =
+            InteriorEntryPortalRect(node.interiorEntryRoom);
+    }
+    const bool allPlayerAlterations = std::all_of(
+        playerInteriorState.permanent.begin(),
+        playerInteriorState.permanent.end(),
+        [](bool unlocked) { return unlocked; });
+    if (node.type == RunNodeType::PlayerInterior &&
+        allPlayerAlterations && !node.portals.empty()) {
+        node.completed = true;
+        const Room& spawn = rooms[
+            node.playerInteriorSpawnRoom >= 0
+                ? static_cast<std::size_t>(node.playerInteriorSpawnRoom) : 0];
+        RunPortal& spawnExit = node.portals.front();
+        spawnExit.active = true;
+        spawnExit.armed = false;
+        spawnExit.sourceRoom = node.playerInteriorSpawnRoom;
+        spawnExit.interiorTrigger = {
+            RoomX(spawn) + interior.roomSize * 0.5f - 36.0f,
+            RoomY(spawn) + interior.roomSize * 0.5f - 36.0f,
+            72.0f, 72.0f};
     }
     if (node.type == RunNodeType::Boss) {
         InitializeBossFight(node);
@@ -840,7 +1023,9 @@ void ConfigureNode(RunNode& node) {
     if (!runArena.audioWalls.empty())
         playerY = kRunArenaHeight - 430.0f;
     RebuildGameplayTextBoxes();
-    if (node.type == RunNodeType::Interior)
+    if (node.type == RunNodeType::Interior ||
+        (node.type == RunNodeType::PlayerInterior &&
+         allPlayerAlterations))
         BuildInteriorArenaDestinations(node);
 }
 
@@ -888,7 +1073,8 @@ void DebugClearCurrentNode() {
     } else if (node->type == RunNodeType::Boss) {
         run.boss.health = 0;
         run.boss.projectiles.clear();
-        run.status = RunStatus::Won;
+        BuildPostBossPortals(*node);
+        run.status = RunStatus::Active;
     } else {
         for (RunPortal& portal : node->portals) {
             portal.active = true;
@@ -1005,7 +1191,7 @@ const char* UpgradeName(UpgradeType type) {
         case UpgradeType::MoveSpeed: return "MOVE SPEED";
         case UpgradeType::MaxHealth: return "MAX HEALTH";
         case UpgradeType::ProjectileDamage: return "SHOT DAMAGE";
-        case UpgradeType::Invincibility: return "HIT INVINCIBILITY";
+        case UpgradeType::Invincibility: return "INVINCIBILITY AFTER HIT";
         case UpgradeType::ExtraProjectile: return "EXTRA PROJECTILE";
     }
     return "UPGRADE";

@@ -63,6 +63,7 @@ void RebuildGameplayTextBoxes();
 void AppendPortalTextBoxes();
 void UnlockInteriorPortals();
 void BuildArenaChoicePortals(RunNode& node);
+void BuildPostBossPortals(RunNode& node);
 void BuildInteriorArenaDestinations(RunNode& node);
 bool HitText(Projectile& projectile);
 void TriggerMainMenuStart();

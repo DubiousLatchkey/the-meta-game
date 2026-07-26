@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 
 #include "state.h"
@@ -15,6 +16,7 @@ bool GenerateBossInteriorGraphGallery(
 bool GenerateInteriorGraphTuner(
     const std::filesystem::path& outputFile);
 void SaveMutations();
+bool DecrementWorldConstant(std::size_t index);
 // Restores only Word bytes captured from world.lua before ApplyMutations().
 void ResetWordMutations();
 void BuildInteriorWorld(std::uint64_t seed = 0);

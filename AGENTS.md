@@ -6,7 +6,9 @@
   changing compile rules. Release executables embed the shared application
   manifest and per-binary version resources from `src`; compile resources
   before linking, and apply any Authenticode signature only after the final
-  link.
+  link. Pass `DEBUG_COMMANDS=0` to `build.bat` to compile out the O/P debug
+  shortcuts; that configuration uses its own object directory so switching
+  flags cannot reuse incompatible objects.
 - Keep behavior separated under `src`: platform startup in `app`, shared data in
   `state`, Lua/world generation in the `world_*` units, simulation in
   `gameplay`/`gameplay_*`, and drawing in `rendering`/`rendering_*`. Preserve
@@ -46,7 +48,7 @@
   Child capacity is an eighth normalized enemy organ: Lua value 1 caps each
   spawner at twice its current maximum herd size, and each stage adds one more
   herd-size multiple.
-  Default spawn delays are 5-8 seconds, and large-herd ranges are 3-5.
+  Default spawn delays are 7-10 seconds, and large-herd ranges are 3-5.
 - Keep audio decoding/playback/persistence in `audio` and audio-derived world
   collision/layout in `audio_level`.
 - Keep level 8 rotated glyph-border layout and collision in `glyph_level`.
@@ -82,11 +84,17 @@
   the assigned quadrant; clearing every turret target there disables that
   quadrant for the final boss of the current run only.
 - The terminal Boss is a large sealed-arena oval with sweeping burst turrets and
-  lock-then-ballistic rocket turrets. Destroying the body wins the run.
+  lock-then-ballistic rocket turrets. Bosses occupy depth levels 0, -10, -20,
+  and so on without additional boss-stat scaling. Destroying one places
+  tuning-room and continue-descent portals inside its body.
+- Negative depth levels always raise three distinct enemy stats. Their
+  multiplier is two plus the completed negative decade, with another step at
+  digits 5 and 9: -5 is X3, -9 is X4, -15 is X4, and -19 is X5.
 - The post-boss tuning room is a dedicated, non-debug arena owned by
   `gameplay_tuning`. It lists scalar gameplay configuration exported by
-  `world.lua` (excluding word/glyph/sprite assets) and exits directly to the
-  title screen.
+  `world.lua` (excluding word/glyph/sprite assets); numeric values are
+  shootable, decrement the actual Lua-backed scalar, and persist as
+  `mutations.lua` overrides. Its exit returns directly to the title screen.
 - P enters the run-local debug arena; repeatable upgrades, respawning powerups,
   and enemy spawner toggles must not award coins or advance progression.
 - Keep game logic/data in Lua where practical and keep the C++ host stable enough

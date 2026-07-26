@@ -222,19 +222,9 @@ bool HitBoss(const Rect& shot, int damage) {
         RunNode* node = CurrentRunNode();
         if (node) {
             node->completed = true;
-            node->portals.clear();
-            RunPortal portal;
-            portal.active = true;
-            portal.armed = false;
-            portal.postBossTuning = true;
-            portal.direction = PortalDirection::South;
-            portal.interiorTrigger = {
-                runArena.bounds.x + runArena.bounds.width * 0.5f - 36.0f,
-                runArena.bounds.y + runArena.bounds.height - 180.0f,
-                72.0f, 72.0f};
-            node->portals.push_back(portal);
+            BuildPostBossPortals(*node);
             RebuildGameplayTextBoxes();
-            run.status = RunStatus::Won;
+            run.status = RunStatus::Active;
             run.boss.turrets.clear();
             run.boss.projectiles.clear();
         }

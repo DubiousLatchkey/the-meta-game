@@ -347,6 +347,15 @@ void DrawChargerWindup(const Enemy& enemy) {
     }
 }
 
+bool EnemyVisible(const Enemy& enemy) {
+    const Rect rect = EnemyRect(enemy);
+    constexpr float margin = 80.0f;
+    return Overlaps(rect, {
+        CameraX() - margin, CameraY() - margin,
+        static_cast<float>(buffer.width) + margin * 2.0f,
+        static_cast<float>(buffer.height) + margin * 2.0f});
+}
+
 void DrawEnemySprite(const Enemy& enemy) {
     const EnemyType& type = types.at(enemy.type);
     const int scale = EnemyScale(enemy);
@@ -1056,9 +1065,11 @@ void Render(HWND window) {
             rail.x, rail.y, rail.dx, rail.dy, rail.length, rail.width,
             0x00FFFFFF, false);
     for (const Enemy& enemy : enemies)
-        if (EnemyIsSimulated(enemy)) DrawChargerWindup(enemy);
+        if (EnemyIsSimulated(enemy) && EnemyVisible(enemy))
+            DrawChargerWindup(enemy);
     for (const Enemy& enemy : enemies)
-        if (EnemyIsSimulated(enemy)) DrawEnemySprite(enemy);
+        if (EnemyIsSimulated(enemy) && EnemyVisible(enemy))
+            DrawEnemySprite(enemy);
     DrawPlayer();
     for (const Projectile& projectile : projectiles)
         DrawProjectileVisual(projectile);
@@ -1103,13 +1114,11 @@ void Render(HWND window) {
                     text_renderer::MeasureWidth(prompt.size())) / 2,
                 54, 0x00FFFFFF);
         }
-    } else {
+    } else if (!MainMenuActive()) {
     DrawRectangle(0, 0, buffer.width, 64, 0x00070B11);
-    if (!MainMenuActive()) {
-        const auto help = phrases.find("help");
-        if (help != phrases.end())
-            DrawPhrase(help->second, 16, 42, 0x00FFFFFF, false);
-    }
+    const auto help = phrases.find("help");
+    if (help != phrases.end())
+        DrawPhrase(help->second, 16, 42, 0x00FFFFFF, false);
     const auto health = phrases.find("hud_health");
     if (health != phrases.end())
         DrawPhrase(health->second, 16, 16, 0x00FFFFFF, false);

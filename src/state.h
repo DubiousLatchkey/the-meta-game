@@ -22,6 +22,7 @@ inline constexpr int kPlayerRenderSize = 14;
 inline constexpr int kPlayerMaxHealth = 3;
 inline constexpr int kProjectileSize = 5;
 inline constexpr float kPlayerSpeed = 275.0f;
+inline constexpr float kMaxEnemySpeedMultiplier = 2.0f;
 inline constexpr int kWallChannelDamage = 5;
 inline constexpr float kBombRadius = 52.5f;
 inline constexpr float kExplosionDuration = 0.22f;
@@ -72,8 +73,10 @@ struct Word {
     std::vector<std::uint8_t> bytes;
 };
 struct WorldConstant {
+    std::string path;
     std::string label;
     std::string value;
+    bool numeric = false;
 };
 struct Organ {
     std::string id;
@@ -166,6 +169,8 @@ struct Projectile {
     std::vector<int> boomerangHitEnemies;
     std::vector<int> boomerangHitSpawners;
     std::vector<int> boomerangHitTextBoxes;
+    std::vector<int> boomerangHitTurrets;
+    bool boomerangHitBoss = false;
     bool boomerangHitSpecialControl = false;
     bool boomerangHitShop = false;
 };
@@ -285,6 +290,7 @@ struct TextBox {
     bool levelValue = false;
     bool menuTitle = false;
     bool startGame = false;
+    int worldConstant = -1;
 };
 struct ShieldBlock {
     Rect rect;
@@ -404,11 +410,13 @@ struct RunPortal {
     bool active = false;
     bool armed = false;
     bool postBossTuning = false;
+    bool continueRun = false;
     Rect interiorTrigger{};
     int sourceRoom = -1;
     int labelWord = -1;
     int detailWord = -1;
     int detailWord2 = -1;
+    int detailWord3 = -1;
 };
 struct RunPickup {
     PickupType type = PickupType::Currency;
@@ -434,7 +442,7 @@ struct ShopOffer {
 struct RunNode {
     RunNodeId id = kInvalidRunNode;
     RunNodeType type = RunNodeType::EnemyArena;
-    std::uint32_t depth = 0;
+    int depth = 0;
     std::uint64_t seed = 0;
     std::vector<RunNodeId> next;
     std::vector<RunWave> waves;

@@ -34,6 +34,7 @@ void DrawWorldLine(
     float x, float y, float dx, float dy, float length, float width,
     std::uint32_t color, bool dotted);
 void DrawPortalEffect(const Rect& portal, const char* assetId);
+void DrawProjectileVisual(const Projectile& projectile);
 void DrawWord(
     int word, float x, float y, std::uint32_t color, bool world);
 void DrawTextString(

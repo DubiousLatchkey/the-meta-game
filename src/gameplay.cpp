@@ -58,6 +58,59 @@ static bool SpawnerIsSimulated(const Spawner& spawner) {
     return WithinSimulationRange(spawner.x + 15.0f, spawner.y + 15.0f);
 }
 
+constexpr float kEnemyGridCellSize = 128.0f;
+std::unordered_map<std::int64_t, std::vector<std::size_t>> enemyGrid;
+
+std::int64_t EnemyGridKey(int x, int y) {
+    return static_cast<std::int64_t>(
+        (static_cast<std::uint64_t>(static_cast<std::uint32_t>(x)) << 32) |
+        static_cast<std::uint32_t>(y));
+}
+
+void RebuildEnemyGrid() {
+    enemyGrid.clear();
+    for (std::size_t index = 0; index < enemies.size(); ++index) {
+        const Enemy& enemy = enemies[index];
+        if (enemy.health <= 0 || enemy.activationRemaining > 0 ||
+            !EnemyIsSimulated(enemy))
+            continue;
+        const Rect rect = EnemyRect(enemy);
+        const int firstX = static_cast<int>(
+            std::floor(rect.x / kEnemyGridCellSize));
+        const int firstY = static_cast<int>(
+            std::floor(rect.y / kEnemyGridCellSize));
+        const int lastX = static_cast<int>(
+            std::floor((rect.x + rect.width) / kEnemyGridCellSize));
+        const int lastY = static_cast<int>(
+            std::floor((rect.y + rect.height) / kEnemyGridCellSize));
+        for (int y = firstY; y <= lastY; ++y)
+            for (int x = firstX; x <= lastX; ++x)
+                enemyGrid[EnemyGridKey(x, y)].push_back(index);
+    }
+}
+
+std::vector<std::size_t> EnemyCandidates(const Rect& area) {
+    std::vector<std::size_t> result;
+    const int firstX = static_cast<int>(
+        std::floor(area.x / kEnemyGridCellSize));
+    const int firstY = static_cast<int>(
+        std::floor(area.y / kEnemyGridCellSize));
+    const int lastX = static_cast<int>(
+        std::floor((area.x + area.width) / kEnemyGridCellSize));
+    const int lastY = static_cast<int>(
+        std::floor((area.y + area.height) / kEnemyGridCellSize));
+    for (int y = firstY; y <= lastY; ++y)
+        for (int x = firstX; x <= lastX; ++x) {
+            const auto found = enemyGrid.find(EnemyGridKey(x, y));
+            if (found != enemyGrid.end())
+                result.insert(
+                    result.end(), found->second.begin(), found->second.end());
+        }
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    return result;
+}
+
 bool DamagePlayer(int damage) {
     if (damage <= 0 || playerHealth <= 0 || playerInvincibility > 0)
         return false;
@@ -95,7 +148,12 @@ bool AcquireHomingTarget(float x, float y, float& targetX, float& targetY) {
     constexpr float kHomingRange = 520.0f;
     constexpr float kHomingRangeSquared = kHomingRange * kHomingRange;
     const int activeRoom = RunArenaMode() ? -1 : CurrentRoom();
-    for (const Enemy& enemy : enemies) {
+    const Rect homingArea{
+        x - kHomingRange, y - kHomingRange,
+        kHomingRange * 2.0f, kHomingRange * 2.0f};
+    for (std::size_t index : EnemyCandidates(homingArea)) {
+        if (index >= enemies.size()) continue;
+        const Enemy& enemy = enemies[index];
         if (enemy.health <= 0 || enemy.activationRemaining > 0 ||
             !EnemyIsSimulated(enemy) ||
             (activeRoom >= 0 && enemy.room != activeRoom))
@@ -235,6 +293,21 @@ void UnlockInteriorPortals() {
 
 bool DamageTextBox(
     TextBox& box, float impactX, int* organEdits = nullptr) {
+    if (box.worldConstant >= 0) {
+        const bool changed = DecrementWorldConstant(
+            static_cast<std::size_t>(box.worldConstant));
+        if (changed) {
+            for (TextBox& target : textBoxes)
+                if (target.worldConstant >= 0 &&
+                    target.worldConstant <
+                        static_cast<int>(worldConstants.size()))
+                    target.rect.width = static_cast<float>(
+                        text_renderer::MeasureWidth(
+                            worldConstants[target.worldConstant].value.size()));
+            PlaySoundEffect(Sound::ValueLowered);
+        }
+        return false;
+    }
     if (box.levelValue) {
         levelNumber = std::max(0, levelNumber - 1);
         if (levelValueWord >= 0) {
@@ -285,7 +358,7 @@ bool HitText(Projectile& projectile) {
             UnlockInteriorPortals();
         if (changedLevel)
             pendingLevelSelection = true;
-        else if (!MainMenuActive())
+        else if (!MainMenuActive() && !PostBossTuningRoomActive())
             RebuildGameplayTextBoxes();
         return true;
     }
@@ -336,13 +409,16 @@ bool HitSpawner(const Rect& shot, int damage) {
 }
 
 bool HitEnemy(const Rect& shot, int damage) {
-    for (Enemy& enemy : enemies)
+    for (std::size_t index : EnemyCandidates(shot)) {
+        if (index >= enemies.size()) continue;
+        Enemy& enemy = enemies[index];
         if (enemy.health > 0 && EnemyIsSimulated(enemy) &&
             EnemyVisualOverlaps(enemy, shot)) {
             enemy.health -= damage;
             PlaySoundEffect(Sound::HitEnemy);
             return true;
         }
+    }
     return false;
 }
 
@@ -376,7 +452,10 @@ bool HitMutableGeometry(const Rect& shot) {
 
 void DetonateBomb(float x, float y, int damage, float radius) {
     PlaySoundEffect(Sound::Explosion);
-    for (Enemy& enemy : enemies) {
+    const Rect blastArea{x - radius, y - radius, radius * 2, radius * 2};
+    for (std::size_t index : EnemyCandidates(blastArea)) {
+        if (index >= enemies.size()) continue;
+        Enemy& enemy = enemies[index];
         if (EnemyIsSimulated(enemy) &&
             EnemyVisualWithinRadius(enemy, x, y, radius))
             enemy.health -= damage;
@@ -461,7 +540,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
             UnlockInteriorPortals();
         if (changedLevel)
             pendingLevelSelection = true;
-        else if (!MainMenuActive())
+        else if (!MainMenuActive() && !PostBossTuningRoomActive())
             RebuildGameplayTextBoxes();
     }
     // Probe the blast disk, but apply at most one mutable-geometry hit per
@@ -599,8 +678,10 @@ void RoomExitTarget(
 
 float EnemyMovementSpeed(const Enemy& enemy) {
     const EnemyType& type = types.at(enemy.type);
-    return (type.speed + static_cast<float>(EnemyStage(
-        enemy.type, EnemyDifficultyStat::Speed))) *
+    const float upgradedSpeed = type.speed + static_cast<float>(EnemyStage(
+        enemy.type, EnemyDifficultyStat::Speed));
+    return std::min(
+        upgradedSpeed, type.speed * kMaxEnemySpeedMultiplier) *
         10.0f * interior.speedUnit;
 }
 
@@ -956,6 +1037,7 @@ void AcquireRailTarget(float startX, float startY, float& dx, float& dy) {
 
 bool FirePlayerRail() {
     if (playerHealth <= 0 || run.mapActive) return false;
+    RebuildEnemyGrid();
     const WeaponStats weapon = ResolvePlayerWeapon("railgun");
     const float startX = playerX + kPlayerSize * 0.5f;
     const float startY = playerY + kPlayerSize * 0.5f;
@@ -981,25 +1063,22 @@ bool FirePlayerRail() {
             const float x = startX + dx * distance;
             const float y = startY + dy * distance;
             const Rect wallProbe{x - 1, y - 1, 2, 2};
-            if (RunWall(wallProbe) ||
-                (!RunArenaMode() && HitsWall(wallProbe))) {
-                break;
-            }
             const Rect hitProbe{
                 x - weapon.width * 0.5f, y - weapon.width * 0.5f,
                 weapon.width, weapon.width};
+            // Rails apply their one edge hit before the wall terminates the
+            // beam, matching projectiles and bomb explosions.
+            if (HitMutableGeometry(hitProbe) ||
+                RunWall(wallProbe) ||
+                (!RunArenaMode() && HitsWall(wallProbe))) {
+                break;
+            }
             railLength = distance;
             Projectile railProbe{
                 hitProbe.x, hitProbe.y, 0, 0, 0, false, false,
                 weapon.damage};
             railProbe.width = weapon.width;
             if (HitText(railProbe)) break;
-            if (currentMap == "audio" && HitAudioGeometry(hitProbe))
-                break;
-            if (currentMap == "glyph" && HitGlyphGeometry(hitProbe)) {
-                SaveMutations();
-                break;
-            }
             if (HitShield(hitProbe, weapon.damage)) break;
             if (!hitSpecial) hitSpecial = HitSpecialControl(hitProbe);
             if (!hitShop) hitShop = HitShopOffer(hitProbe);
@@ -1014,7 +1093,7 @@ bool FirePlayerRail() {
                 }
             if (!hitBossBody && HitBoss(hitProbe, weapon.damage))
                 hitBossBody = true;
-            for (std::size_t index = 0; index < enemies.size(); ++index)
+            for (std::size_t index : EnemyCandidates(hitProbe))
                 if (!hitEnemies[index] && enemies[index].health > 0 &&
                     EnemyVisualOverlaps(enemies[index], hitProbe)) {
                     enemies[index].health -= weapon.damage;
@@ -1298,6 +1377,8 @@ bool UpdateMovementAndPortals(float dt) {
                         return true;
                     }
                     if (portal.destination != kInvalidRunNode) {
+                        if (portal.continueRun)
+                            run.clearedBossQuadrants.fill(false);
                         EnterRunNode(portal.destination);
                         PlaySoundEffect(Sound::Teleport);
                         return true;
@@ -1647,7 +1728,9 @@ void UpdateEnemies(float dt, int activeRoom) {
             if (movedRoom >= 0) enemy.room = movedRoom;
         }
     }
-    ResolveEnemyCrowding();
+    static std::uint32_t crowdingFrame = 0;
+    if (++crowdingFrame % 3 == 0)
+        ResolveEnemyCrowding();
 }
 
 void UpdateProjectilesAndBombs(float dt) {
@@ -1671,6 +1754,8 @@ void UpdateProjectilesAndBombs(float dt) {
                     projectile.boomerangHitEnemies.clear();
                     projectile.boomerangHitSpawners.clear();
                     projectile.boomerangHitTextBoxes.clear();
+                    projectile.boomerangHitTurrets.clear();
+                    projectile.boomerangHitBoss = false;
                     projectile.boomerangHitSpecialControl = false;
                     projectile.boomerangHitShop = false;
                 } else {
@@ -1709,7 +1794,7 @@ void UpdateProjectilesAndBombs(float dt) {
             const Rect shot{
                 projectile.x, projectile.y,
                 projectile.width, projectile.width};
-            for (std::size_t index = 0; index < enemies.size(); ++index)
+            for (std::size_t index : EnemyCandidates(shot))
                 if (enemies[index].health > 0 &&
                     EnemyIsSimulated(enemies[index]) &&
                     std::find(
@@ -1737,6 +1822,23 @@ void UpdateProjectilesAndBombs(float dt) {
                     projectile.boomerangHitSpawners.push_back(
                         static_cast<int>(index));
                 }
+            for (std::size_t index = 0;
+                 index < run.boss.turrets.size(); ++index)
+                if (run.boss.turrets[index].alive &&
+                    std::find(
+                        projectile.boomerangHitTurrets.begin(),
+                        projectile.boomerangHitTurrets.end(),
+                        static_cast<int>(index)) ==
+                        projectile.boomerangHitTurrets.end() &&
+                    Overlaps(
+                        shot, BossTurretTargetRect(run.boss.turrets[index]))) {
+                    HitBossTurretTarget(shot, projectile.damage);
+                    projectile.boomerangHitTurrets.push_back(
+                        static_cast<int>(index));
+                }
+            if (!projectile.boomerangHitBoss &&
+                HitBoss(shot, projectile.damage))
+                projectile.boomerangHitBoss = true;
             for (std::size_t index = 0; index < textBoxes.size(); ++index) {
                 if (!Overlaps(shot, textBoxes[index].rect) ||
                     std::find(
@@ -1758,7 +1860,7 @@ void UpdateProjectilesAndBombs(float dt) {
                     UnlockInteriorPortals();
                 if (changedLevel)
                     pendingLevelSelection = true;
-                else if (!MainMenuActive())
+                else if (!MainMenuActive() && !PostBossTuningRoomActive())
                     RebuildGameplayTextBoxes();
                 break;
             }
@@ -1912,6 +2014,7 @@ void UpdateProjectilesAndBombs(float dt) {
 }
 
 void FinalizeFrame(int activeRoom) {
+    if (!debugRoom) AwardSpawnerDeaths();
     if (!debugRoom) if (RunNode* node = CurrentRunNode()) {
         const bool rewardsEnabled =
             node->type != RunNodeType::PlayerInterior;
@@ -1920,6 +2023,8 @@ void FinalizeFrame(int activeRoom) {
             const std::uint64_t sequence = run.deathSequence++;
             const std::uint64_t drop = DeriveRunSeed(
                 run.globalSeed, 0x44524f50ULL, sequence);
+            const std::uint64_t powerupDrop = DeriveRunSeed(
+                drop, 0x504f5745525550ULL);
             if (rewardsEnabled &&
                 drop % rogueliteTuning.healthPickupDropChance == 0) {
                 node->pickups.push_back({
@@ -1927,12 +2032,13 @@ void FinalizeFrame(int activeRoom) {
                     UpgradeType::MaxHealth, 1,
                     enemy.x, enemy.y, false});
             } else if (rewardsEnabled &&
-                       drop % rogueliteTuning.powerupDropChance == 0) {
+                       powerupDrop %
+                           rogueliteTuning.powerupDropChance == 0) {
                 static const PickupType pickupTypes[]{
                     PickupType::Multishot, PickupType::Homing,
                     PickupType::AutoRocket};
                 node->pickups.push_back({
-                    pickupTypes[(drop >> 8) % 3],
+                    pickupTypes[(powerupDrop >> 8) % 3],
                     UpgradeType::MaxHealth, 1,
                     enemy.x, enemy.y, false});
             }
@@ -1970,7 +2076,6 @@ void FinalizeFrame(int activeRoom) {
                 return false;
             }),
         enemies.end());
-    if (!debugRoom) AwardSpawnerDeaths();
 }
 
 void Update(float dt) {
@@ -2003,6 +2108,7 @@ void Update(float dt) {
     UpdatePlayerBuffs(dt);
     UpdatePickups(dt);
     UpdateEnemies(dt, activeRoom);
+    RebuildEnemyGrid();
     UpdateProjectilesAndBombs(dt);
     FinalizeFrame(activeRoom);
     if (playerHealth <= 0) {

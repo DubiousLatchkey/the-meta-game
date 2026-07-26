@@ -1,4 +1,5 @@
 /build/
+/build-no-debug-commands/
 /release/game/
 /dist/
 *.exe

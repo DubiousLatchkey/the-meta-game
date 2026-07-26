@@ -1,6 +1,18 @@
 LUA_DIR=third_party\lua
 SRC_DIR=src
+
+!IFNDEF DEBUG_COMMANDS
+DEBUG_COMMANDS=1
+!ENDIF
+
+!IF "$(DEBUG_COMMANDS)" == "0"
+BUILD_DIR=build-no-debug-commands
+!ELSEIF "$(DEBUG_COMMANDS)" == "1"
 BUILD_DIR=build
+!ELSE
+!ERROR DEBUG_COMMANDS must be 0 or 1
+!ENDIF
+
 LUA_BUILD_DIR=$(BUILD_DIR)\lua
 RELEASE_DIR=release
 GOLDEN_AUDIO_DIR=$(RELEASE_DIR)\golden_audio
@@ -20,10 +32,10 @@ dirs:
 	cl /nologo /c /MP /O2 /W3 /TC /D_CRT_SECURE_NO_WARNINGS /I$(LUA_DIR) /Fo$(LUA_BUILD_DIR)\ $<
 
 {$(SRC_DIR)}.cpp{$(BUILD_DIR)}.obj::
-	cl /nologo /c /MP /std:c++17 /EHsc /O2 /W4 /DNOMINMAX /DUNICODE /D_UNICODE /I. /I$(SRC_DIR) /I$(LUA_DIR) /Fo$(BUILD_DIR)\ $<
+	cl /nologo /c /MP /std:c++17 /EHsc /O2 /W4 /DNOMINMAX /DUNICODE /D_UNICODE /DTMG_ENABLE_DEBUG_COMMANDS=$(DEBUG_COMMANDS) /I. /I$(SRC_DIR) /I$(LUA_DIR) /Fo$(BUILD_DIR)\ $<
 
 {.}.cpp{$(BUILD_DIR)}.obj::
-	cl /nologo /c /MP /std:c++17 /EHsc /O2 /W4 /DNOMINMAX /DUNICODE /D_UNICODE /I. /I$(SRC_DIR) /I$(LUA_DIR) /Fo$(BUILD_DIR)\ $<
+	cl /nologo /c /MP /std:c++17 /EHsc /O2 /W4 /DNOMINMAX /DUNICODE /D_UNICODE /DTMG_ENABLE_DEBUG_COMMANDS=$(DEBUG_COMMANDS) /I. /I$(SRC_DIR) /I$(LUA_DIR) /Fo$(BUILD_DIR)\ $<
 
 $(BUILD_DIR)\app.obj: $(SRC_DIR)\app.cpp $(SRC_DIR)\audio.h $(SRC_DIR)\state.h $(SRC_DIR)\world.h $(SRC_DIR)\gameplay.h $(SRC_DIR)\rendering.h
 $(BUILD_DIR)\reset_game.obj: $(SRC_DIR)\reset_game.cpp
@@ -45,7 +57,7 @@ $(BUILD_DIR)\gameplay_levels.obj: $(SRC_DIR)\gameplay_levels.cpp $(SRC_DIR)\audi
 $(BUILD_DIR)\gameplay_menu.obj: $(SRC_DIR)\gameplay_menu.cpp $(SRC_DIR)\arena_level.h $(SRC_DIR)\gameplay.h $(SRC_DIR)\gameplay_internal.h $(SRC_DIR)\world.h $(SRC_DIR)\state.h text_renderer.h
 $(BUILD_DIR)\gameplay_player_interior.obj: $(SRC_DIR)\gameplay_player_interior.cpp $(SRC_DIR)\gameplay.h $(SRC_DIR)\gameplay_internal.h $(SRC_DIR)\roguelite.h $(SRC_DIR)\world.h $(SRC_DIR)\state.h
 $(BUILD_DIR)\gameplay_run.obj: $(SRC_DIR)\gameplay_run.cpp $(SRC_DIR)\arena_level.h $(SRC_DIR)\gameplay.h $(SRC_DIR)\gameplay_internal.h $(SRC_DIR)\roguelite.h $(SRC_DIR)\world.h $(SRC_DIR)\state.h text_renderer.h
-$(BUILD_DIR)\gameplay_tuning.obj: $(SRC_DIR)\gameplay_tuning.cpp $(SRC_DIR)\arena_level.h $(SRC_DIR)\gameplay.h $(SRC_DIR)\gameplay_internal.h $(SRC_DIR)\state.h
+$(BUILD_DIR)\gameplay_tuning.obj: $(SRC_DIR)\gameplay_tuning.cpp $(SRC_DIR)\arena_level.h $(SRC_DIR)\gameplay.h $(SRC_DIR)\gameplay_internal.h $(SRC_DIR)\state.h text_renderer.h
 $(BUILD_DIR)\rendering.obj: $(SRC_DIR)\rendering.cpp $(SRC_DIR)\rendering.h $(SRC_DIR)\rendering_internal.h $(SRC_DIR)\audio.h $(SRC_DIR)\gameplay.h $(SRC_DIR)\roguelite.h $(SRC_DIR)\world.h $(SRC_DIR)\state.h text_renderer.h
 $(BUILD_DIR)\rendering_levels.obj: $(SRC_DIR)\rendering_levels.cpp $(SRC_DIR)\rendering_internal.h $(SRC_DIR)\audio_level.h $(SRC_DIR)\glyph_level.h $(SRC_DIR)\state.h text_renderer.h
 $(BUILD_DIR)\rendering_run.obj: $(SRC_DIR)\rendering_run.cpp $(SRC_DIR)\rendering_internal.h $(SRC_DIR)\roguelite.h $(SRC_DIR)\state.h text_renderer.h

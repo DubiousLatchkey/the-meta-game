@@ -110,7 +110,7 @@ const char* DifficultyStatName(EnemyDifficultyStat stat) {
         case EnemyDifficultyStat::Damage: return "DAMAGE";
         case EnemyDifficultyStat::SpawnerHealth: return "SPAWNER HEALTH";
         case EnemyDifficultyStat::SpawnSpeed: return "SPAWN SPEED";
-        case EnemyDifficultyStat::ChildCapacity: return "CHILD CAPACITY";
+        case EnemyDifficultyStat::ChildCapacity: return "ENEMIES PER SPAWNER";
     }
     return "STAT";
 }
@@ -125,7 +125,7 @@ const RunNode* GetRunNode(const RunData& data, RunNodeId id) {
 
 RunNode* CurrentRunNode() { return GetRunNode(run.currentNode); }
 
-const std::vector<RunNodeId> RunNodesAtDepth(std::uint32_t depth) {
+const std::vector<RunNodeId> RunNodesAtDepth(int depth) {
     std::vector<RunNodeId> result;
     for (const RunNode& node : run.nodes)
         if (node.depth == depth) result.push_back(node.id);
@@ -154,13 +154,11 @@ bool SetCurrentRunNode(RunNodeId id) {
 bool IsRunGraphValid(const RunData& data) {
     if (data.nodes.empty() || data.startNode >= data.nodes.size())
         return false;
-    const std::uint32_t terminalDepth = std::max_element(
+    const int terminalDepth = std::min_element(
         data.nodes.begin(), data.nodes.end(),
         [](const RunNode& first, const RunNode& second) {
             return first.depth < second.depth;
         })->depth;
-    if (terminalDepth < 2 || data.nodes[data.startNode].depth != 0)
-        return false;
     std::vector<bool> reached(data.nodes.size(), false);
     std::queue<RunNodeId> pending;
     reached[data.startNode] = true;
@@ -170,7 +168,7 @@ bool IsRunGraphValid(const RunData& data) {
         pending.pop();
         for (RunNodeId next : node.next) {
             if (next >= data.nodes.size() ||
-                data.nodes[next].depth <= node.depth)
+                data.nodes[next].depth >= node.depth)
                 return false;
             if (!reached[next]) {
                 reached[next] = true;
@@ -188,39 +186,12 @@ bool IsRunGraphValid(const RunData& data) {
         [](const RunNode& node) {
             return node.type == RunNodeType::Boss;
         });
-    if (bossCount != 1) return false;
-    const RunNodeId boss = static_cast<RunNodeId>(std::distance(
-        data.nodes.begin(), std::find_if(
-            data.nodes.begin(), data.nodes.end(),
-            [](const RunNode& node) {
-                return node.type == RunNodeType::Boss;
-            })));
-    if (data.nodes[boss].depth != terminalDepth)
-        return false;
-    std::array<bool, 4> bossInteriorQuadrants{};
-    std::size_t bossInteriorCount = 0;
-    for (const RunNode& node : data.nodes) {
-        if (node.depth != terminalDepth - 1) continue;
-        if (node.type != RunNodeType::BossInterior) return false;
-        const std::size_t quadrant =
-            static_cast<std::size_t>(node.bossQuadrant);
-        if (quadrant >= bossInteriorQuadrants.size() ||
-            bossInteriorQuadrants[quadrant])
-            return false;
-        bossInteriorQuadrants[quadrant] = true;
-        ++bossInteriorCount;
-    }
-    if (bossInteriorCount < 1 || bossInteriorCount > 2)
-        return false;
-    std::vector<bool> reachesBoss(data.nodes.size(), false);
-    reachesBoss[boss] = true;
-    for (std::size_t index = data.nodes.size(); index-- > 0;) {
-        const RunNode& node = data.nodes[index];
-        for (RunNodeId next : node.next)
-            reachesBoss[index] = reachesBoss[index] || reachesBoss[next];
-    }
-    return std::find(
-        reachesBoss.begin(), reachesBoss.end(), false) == reachesBoss.end();
+    if (bossCount < 1) return false;
+    return std::any_of(
+        data.nodes.begin(), data.nodes.end(),
+        [terminalDepth](const RunNode& node) {
+            return node.depth == terminalDepth;
+        });
 }
 
 }  // namespace game

@@ -17,6 +17,10 @@
 #include "state.h"
 #include "world.h"
 
+#ifndef TMG_ENABLE_DEBUG_COMMANDS
+#define TMG_ENABLE_DEBUG_COMMANDS 1
+#endif
+
 namespace game {
 namespace {
 
@@ -34,17 +38,16 @@ void UpdateController() {
         return;
     }
     const XINPUT_GAMEPAD& pad = state.Gamepad;
-    const auto axis = [](SHORT value) {
-        const float normalized = static_cast<float>(value) / 32767.0f;
-        return std::abs(normalized) < 0.22f ? 0.0f : normalized;
+    const auto normalizedAxis = [](SHORT value) {
+        return static_cast<float>(value) / 32767.0f;
     };
-    keys[0] = axis(pad.sThumbLX) < 0;
-    keys[1] = axis(pad.sThumbLX) > 0;
-    keys[2] = axis(pad.sThumbLY) > 0;
-    keys[3] = axis(pad.sThumbLY) < 0;
+    keys[0] = normalizedAxis(pad.sThumbLX) < 0;
+    keys[1] = normalizedAxis(pad.sThumbLX) > 0;
+    keys[2] = normalizedAxis(pad.sThumbLY) > 0;
+    keys[3] = normalizedAxis(pad.sThumbLY) < 0;
 
-    const float rightX = axis(pad.sThumbRX);
-    const float rightY = axis(pad.sThumbRY);
+    const float rightX = normalizedAxis(pad.sThumbRX);
+    const float rightY = normalizedAxis(pad.sThumbRY);
     if (rightX != 0 || rightY != 0) {
         const float distance =
             static_cast<float>(std::max(buffer.width, buffer.height));
@@ -80,8 +83,10 @@ LRESULT CALLBACK WindowProcedure(
             if (wParam == 'S' || wParam == VK_DOWN) keys[3] = down;
             if (down && wParam == VK_F5 && ReloadWorld(false))
                 EnterMainMenu();
+#if TMG_ENABLE_DEBUG_COMMANDS
             if (down && wParam == 'P') EnterDebugRoom();
             if (down && wParam == 'O') DebugClearCurrentNode();
+#endif
             if (down && wParam == 'R') EnterMainMenu();
             if (down && wParam == VK_ESCAPE) DestroyWindow(window);
             return 0;

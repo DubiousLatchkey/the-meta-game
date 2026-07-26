@@ -19,7 +19,7 @@ void ResetRun();
 RunNode* GetRunNode(RunNodeId id);
 const RunNode* GetRunNode(const RunData& data, RunNodeId id);
 RunNode* CurrentRunNode();
-const std::vector<RunNodeId> RunNodesAtDepth(std::uint32_t depth);
+const std::vector<RunNodeId> RunNodesAtDepth(int depth);
 const RunMapVertex* GetRunMapVertex(const RunData& data, RunNodeId id);
 Rect RunMapVertexRect(const RunMapVertex& vertex);
 bool SetCurrentRunNode(RunNodeId id);

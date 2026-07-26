@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -253,23 +254,31 @@ void DrawRunArena() {
             0x00FFFFFF);
         return;
     }
-    for (const RunPortal& portal : node->portals) {
-        if (!portal.active || DebugRoomActive()) continue;
-        const RunNode* destination = GetRunNode(run, portal.destination);
-        const Rect portalRect = portal.interiorTrigger.width > 0
-            ? portal.interiorTrigger : ExitPortalRect();
-        const float x = portalRect.x, y = portalRect.y;
-        const char* assetId = !destination ? "portal_arena" :
-            destination->type == RunNodeType::BossInterior
-                ? "portal_boss_interior" :
-            destination->type == RunNodeType::PlayerInterior
-                ? "portal_player_interior" :
-            destination->type == RunNodeType::Interior ? "portal_interior" :
-            destination->type == RunNodeType::Shop ? "portal_shop" :
-            destination->type == RunNodeType::Boss ? "portal_boss" :
-            "portal_arena";
-        DrawPortalEffect({x, y, portalRect.width, portalRect.height}, assetId);
-    }
+    const auto drawPortals = [&]() {
+        for (const RunPortal& portal : node->portals) {
+            if (!portal.active || DebugRoomActive()) continue;
+            const RunNode* destination =
+                GetRunNode(run, portal.destination);
+            const Rect portalRect = portal.interiorTrigger.width > 0
+                ? portal.interiorTrigger : ExitPortalRect();
+            const float x = portalRect.x, y = portalRect.y;
+            const char* assetId = !destination ? "portal_arena" :
+                destination->type == RunNodeType::BossInterior
+                    ? "portal_boss_interior" :
+                destination->type == RunNodeType::PlayerInterior
+                    ? "portal_player_interior" :
+                destination->type == RunNodeType::Interior
+                    ? "portal_interior" :
+                destination->type == RunNodeType::Shop ? "portal_shop" :
+                destination->type == RunNodeType::Boss ? "portal_boss" :
+                "portal_arena";
+            DrawPortalEffect(
+                {x, y, portalRect.width, portalRect.height}, assetId);
+        }
+    };
+    const bool portalsInDeadBoss =
+        node->type == RunNodeType::Boss && run.boss.health <= 0;
+    if (!portalsInDeadBoss) drawPortals();
     if (DebugRoomActive()) {
         const Rect portalRect = ExitPortalRect();
         DrawPortalEffect(portalRect, "portal_arena");
@@ -306,15 +315,20 @@ void DrawRunArena() {
                 std::sin(turret.aim), 42.0f, 3.0f, color, false);
         }
         for (const EnemyProjectile& shot : run.boss.projectiles) {
-            DrawWorldRect(
-                {shot.x - (shot.rocket ? 5.0f : 3.0f),
-                 shot.y - (shot.rocket ? 5.0f : 3.0f),
-                 shot.rocket ? 10.0f : 6.0f,
-                 shot.rocket ? 10.0f : 6.0f},
-                shot.rocket ? 0x00FF8A30 : 0x00FFFFFF);
+            if (shot.rocket) {
+                Projectile rocket{
+                    shot.x - 2.5f, shot.y - 2.5f,
+                    shot.vx, shot.vy, 0.0f, true, true, shot.damage};
+                rocket.width = 5.0f;
+                DrawProjectileVisual(rocket);
+            } else {
+                DrawWorldRect(
+                    {shot.x - 3.0f, shot.y - 3.0f, 6.0f, 6.0f},
+                    0x00FFFFFF);
+            }
         }
         const std::string health =
-            run.status == RunStatus::Won ? "BOSS DEFEATED" :
+            run.boss.health <= 0 ? "BOSS DEFEATED" :
             "BOSS " + std::to_string(run.boss.health) + "/" +
                 std::to_string(run.boss.maxHealth);
         DrawTextString(
@@ -341,6 +355,7 @@ void DrawRunArena() {
                 static_cast<int>(
                     bossY + run.boss.radiusY + 12 - CameraY()),
                 0x00A0FFC0);
+        if (portalsInDeadBoss) drawPortals();
     }
     if (node->type == RunNodeType::Shop) {
         for (std::size_t index = 0; index < node->shopOffers.size(); ++index) {
@@ -352,14 +367,6 @@ void DrawRunArena() {
             const std::string value = offer.kind == ShopOfferKind::Upgrade
                 ? ShortNumber(UpgradeCurrentValue(offer.upgrade))
                 : (offer.purchased ? "EQUIPPED" : "REPLACES SLOT");
-            DrawTextString(
-                ShopOfferName(offer),
-                static_cast<int>(target.x - CameraX()),
-                static_cast<int>(target.y - 66 - CameraY()), 0x00FFFFFF);
-            DrawTextString(
-                "COST " + std::to_string(offer.price) + " COINS",
-                static_cast<int>(target.x - CameraX()),
-                static_cast<int>(target.y - 40 - CameraY()), 0x00FFFFFF);
             DrawTextString(
                 value,
                 static_cast<int>(
@@ -381,22 +388,9 @@ void DrawRunArena() {
                 (purchase.width - 24) * progress, 12}, 0x00FFFFFF);
         }
         const Rect reset = ResetWordsTarget();
-        DrawWorldRect(reset, 0x00204460);
         const Rect purchase = ResetWordsPurchaseArea();
         DrawWorldRect(purchase, 0x00502070);
-        const std::string label = "RESET WORDS";
-        DrawTextString(
-            label,
-            static_cast<int>(reset.x - CameraX()),
-            static_cast<int>(reset.y - 66 - CameraY()), 0x00FFFFFF);
-        DrawTextString(
-            "COST 3 COINS", static_cast<int>(reset.x - CameraX()),
-            static_cast<int>(reset.y - 40 - CameraY()), 0x00FFFFFF);
-        DrawTextString(
-            "RESTORE BASELINE",
-            static_cast<int>(CenterX(reset) -
-                text_renderer::MeasureWidth(16) * 0.5f - CameraX()),
-            static_cast<int>(reset.y + 22 - CameraY()), 0x00FFFFFF);
+        (void)reset;
         DrawTextString(
             "STAND HERE",
             static_cast<int>(CenterX(purchase) -
@@ -589,24 +583,55 @@ void DrawRunHud() {
             alpha = 0.15f + regenerationProgress * 0.85f;
         DrawHealthSprite(healthX + index * 22, healthY, alpha);
     }
+    static const auto weaponCycleStarted =
+        std::chrono::steady_clock::now();
+    const std::uint64_t weaponCycle = static_cast<std::uint64_t>(
+        std::chrono::duration<float>(
+            std::chrono::steady_clock::now() - weaponCycleStarted).count() /
+        3.0f);
+    std::vector<PrimaryWeapon> equippedPrimaries;
+    std::vector<SecondaryWeapon> equippedSecondaries;
+    if (playerInteriorState.permanent[4])
+        for (int index = 0; index < 3; ++index)
+            if (run.primaryWeapons[index])
+                equippedPrimaries.push_back(
+                    static_cast<PrimaryWeapon>(index));
+    if (playerInteriorState.permanent[5])
+        for (int index = 0; index < 3; ++index)
+            if (run.secondaryWeapons[index])
+                equippedSecondaries.push_back(
+                    static_cast<SecondaryWeapon>(index));
+    if (equippedPrimaries.empty())
+        equippedPrimaries.push_back(run.primaryWeapon);
+    if (equippedSecondaries.empty())
+        equippedSecondaries.push_back(run.secondaryWeapon);
+    const PrimaryWeapon shownPrimary = equippedPrimaries[
+        weaponCycle % equippedPrimaries.size()];
+    const SecondaryWeapon shownSecondary = equippedSecondaries[
+        weaponCycle % equippedSecondaries.size()];
     const std::string weapons =
-        std::string(PrimaryWeaponName(run.primaryWeapon)) + " / " +
-        SecondaryWeaponName(run.secondaryWeapon);
-    DrawTextString(weapons, 12, 42, 0x00FFFFFF);
+        std::string(PrimaryWeaponName(shownPrimary)) + " / " +
+        SecondaryWeaponName(shownSecondary);
+    const int weaponY = run.extraLifeAvailable ? 74 : 42;
+    if (run.extraLifeAvailable)
+        DrawTextString("EXTRA LIFE", 12, 42, 0x00A0FFC0);
+    DrawTextString(weapons, 12, weaponY, 0x00FFFFFF);
     const float bombDuration = std::max(
         0.01f, SecondaryCooldownDuration());
     const float bombReady =
         1.0f - std::clamp(bombCooldown / bombDuration, 0.0f, 1.0f);
     const int cooldownX =
         24 + text_renderer::MeasureWidth(weapons.size());
-    DrawRectangle(cooldownX, 47, 120, 10, 0x00252A30);
+    DrawRectangle(cooldownX, weaponY + 5, 120, 10, 0x00252A30);
     DrawRectangle(
-        cooldownX, 47, static_cast<int>(120 * bombReady), 10, 0x00FFFFFF);
-    if (run.primaryWeapon == PrimaryWeapon::Railgun &&
+        cooldownX, weaponY + 5,
+        static_cast<int>(120 * bombReady), 10, 0x00FFFFFF);
+    if (shownPrimary == PrimaryWeapon::Railgun &&
         run.primaryCharge > 0) {
-        DrawRectangle(cooldownX + 132, 47, 120, 10, 0x00252A30);
         DrawRectangle(
-            cooldownX + 132, 47,
+            cooldownX + 132, weaponY + 5, 120, 10, 0x00252A30);
+        DrawRectangle(
+            cooldownX + 132, weaponY + 5,
             static_cast<int>(120 * PrimaryChargeProgress()),
             10, 0x00FFFFFF);
     }
@@ -657,13 +682,6 @@ void DrawRunHud() {
             (buffer.width -
                 text_renderer::MeasureWidth(powerups.size())) / 2,
             10, 0x00FFFFFF);
-    if (run.extraLifeAvailable) {
-        const std::string extraLife = "EXTRA LIFE READY";
-        DrawTextString(
-            extraLife,
-            (buffer.width - text_renderer::MeasureWidth(extraLife.size())) / 2,
-            42, 0x00A0FFC0);
-    }
     if (current->type == RunNodeType::Boss &&
         run.status == RunStatus::Won)
         DrawTextString(
