@@ -264,7 +264,7 @@ void BuildArenaChoicePortals(RunNode& node) {
             ? 0 : run.arenasWithoutEnemyInterior + 1;
         if ((roll >> 8) % 4 == 0)
             choices.push_back(RunNodeType::BossInterior);
-        const std::uint64_t playerInteriorRoll = (roll >> 16) % 7;
+        const std::uint64_t playerInteriorRoll = (roll >> 16) % 14;
         const bool earlyDepth = sourceLevel >= 5 && sourceLevel <= 10;
         const int playerInteriorBatch = sourceLevel >= 0 ? 0 :
             1 + (-sourceLevel - 1) / 10;
@@ -273,7 +273,7 @@ void BuildArenaChoicePortals(RunNode& node) {
             run.playerInteriorPortalBatches.end(),
             playerInteriorBatch) != run.playerInteriorPortalBatches.end();
         if (!batchAlreadyUsed &&
-            playerInteriorRoll < (earlyDepth ? 2ULL : 1ULL)) {
+            playerInteriorRoll < (earlyDepth ? 3ULL : 2ULL)) {
             choices.push_back(RunNodeType::PlayerInterior);
             run.playerInteriorPortalBatches.push_back(playerInteriorBatch);
         }
