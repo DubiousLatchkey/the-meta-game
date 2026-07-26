@@ -133,6 +133,47 @@ bool GenerateInteriorGraphGallery(
     return true;
 }
 
+bool GenerateBossInteriorGraphGallery(
+    const std::filesystem::path& outputDirectory, int count) {
+    if (count <= 0) return false;
+    std::error_code error;
+    std::filesystem::create_directories(outputDirectory, error);
+    if (error) return false;
+    std::ofstream index(outputDirectory / "index.html", std::ios::trunc);
+    if (!index) return false;
+    index << R"HTML(<!doctype html><meta charset="utf-8"><title>Boss Interior Bloom Tuner</title>
+<style>:root{color-scheme:dark;font-family:Segoe UI,sans-serif}body{margin:0;background:#080c13;color:#e8eef7}header{position:sticky;top:0;z-index:2;background:#101722ee;padding:16px 22px;border-bottom:1px solid #293548}h1{margin:0 0 12px;font-size:22px}.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}input,button{background:#070b11;color:#fff;border:1px solid #40516b;border-radius:4px;padding:7px}button{background:#3ed0a1;color:#06120e;font-weight:700;cursor:pointer}main{display:grid;grid-template-columns:repeat(2,minmax(360px,1fr));gap:18px;padding:18px}section{background:#111925;border:1px solid #263448;border-radius:8px;padding:12px}h2{margin:0 0 8px;font-size:16px}svg{width:100%;height:430px;background:#070b11}.legend{color:#a9b7ca;font-size:12px}</style>
+<header><h1>Boss Interior Bloom Tuner</h1><div class="controls"><label>Seed <input id="seed" value="1234567"></label><label>Terminal rooms <input id="terminals" type="number" min="1" max="4" value="4"></label><label>Path chance % <input id="pathChance" type="number" min="5" max="100" value="78"></label><label>Branch chance % <input id="branchChance" type="number" min="0" max="100" value="24"></label><label>Max path length <input id="maxLength" type="number" min="1" max="8" value="2"></label><button id="regenerate">New seed</button><button id="apply">Apply</button></div></header><main id="maps"></main>
+<script>const quadrants=)HTML";
+    const EnemyType& giant = types.at("boss");
+    int midRow = 0, midColumn = 0;
+    BossSpriteMidpoint(midRow, midColumn);
+    index << "[";
+    for (int quadrantValue = 0; quadrantValue < 4; ++quadrantValue) {
+        if (quadrantValue) index << ",";
+        index << "[";
+        bool first = true;
+        for (int row = 0; row < static_cast<int>(giant.sprite.size()); ++row)
+            for (int column = 0;
+                 column < static_cast<int>(giant.sprite[row].size()); ++column)
+                if (giant.sprite[row][column].occupied &&
+                    static_cast<int>(BossQuadrantForCell(
+                        row, column, midRow, midColumn)) == quadrantValue) {
+                    if (!first) index << ",";
+                    first = false;
+                    index << "[" << row << "," << column << "]";
+                }
+        index << "]";
+    }
+    index << R"HTML(];
+const names=["NW","NE","SW","SE"],dirs=[[-1,0],[1,0],[0,-1],[0,1]];
+function hash(a,b,c){let x=BigInt.asUintN(64,BigInt(a)^BigInt(b+1)*0x9e3779b97f4a7c15n^BigInt(c+1)*0xbf58476d1ce4e5b9n);x^=x>>30n;x=BigInt.asUintN(64,x*0xbf58476d1ce4e5b9n);x^=x>>27n;x=BigInt.asUintN(64,x*0x94d049bb133111ebn);return BigInt.asUintN(64,x^(x>>31n))}
+function graph(cells,base,target,cfg){const at=new Map(cells.map((p,i)=>[p.join(","),i])),near=i=>dirs.map(d=>at.get((cells[i][0]+d[0])+","+(cells[i][1]+d[1]))).filter(x=>x!==undefined);for(let attempt=0;attempt<256;attempt++){const seed=hash(base,attempt,cells.length);let spawn=Number(hash(seed,0,cells.length)%BigInt(cells.length));if(!near(spawn).length)spawn=cells.findIndex((_,i)=>near(i).length);const used=new Set([spawn]),edges=[],front=[[spawn,0]],ends=[];let n=0;while(front.length&&ends.length<target){const [i,length]=front.pop();if(length>=cfg.maxLength&&i!==spawn){ends.push(i);continue}let options=near(i).filter(x=>!used.has(x)).sort((a,b)=>hash(seed,i,a+n)<hash(seed,i,b+n)?-1:1);if(i!==spawn)options=options.filter(next=>Number(hash(seed,i,n++ + next)%100n)<cfg.pathChance);if(!options.length){if(i!==spawn)ends.push(i);continue}const take=i===spawn?1:options.length>1&&Number(hash(seed,i,n++)%100n)<cfg.branchChance?2:1;for(const next of options.slice(0,take)){used.add(next);edges.push([i,next]);front.push([next,take>1?1:length+1])}}if(ends.length===target)return{spawn,used,edges,ends}}return{spawn:0,used:new Set([0]),edges:[],ends:[]}}
+function render(q,cells,seed,target,cfg){const g=graph(cells,seed,target,cfg),rows=Math.max(...cells.map(p=>p[0])),cols=Math.max(...cells.map(p=>p[1])),w=80+(cols+1)*45,h=80+(rows+1)*45,pt=i=>[40+cells[i][1]*45,40+cells[i][0]*45];const lines=g.edges.map(e=>{const a=pt(e[0]),b=pt(e[1]);return`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#64748b" stroke-width="5"/>`}).join("");const nodes=cells.map((_,i)=>{const p=pt(i),active=g.used.has(i),end=g.ends.indexOf(i),fill=i===g.spawn?"#32e875":end>=0?"#f5b942":active?"#60c0d0":"#242c34";return`<circle cx="${p[0]}" cy="${p[1]}" r="12" fill="${fill}"/><text x="${p[0]}" y="${p[1]+5}" text-anchor="middle" fill="#071018">${end>=0?end+1:""}</text>`}).join("");return`<section><h2>${names[q]} · ${g.used.size}/${cells.length} rooms reachable · ${g.ends.length} terminals</h2><svg viewBox="0 0 ${w} ${h}">${lines}${nodes}</svg><p class="legend">Green = entrance · gold = turret/objective terminals · cyan = reachable · dark = sealed</p></section>`}
+function update(){let seed;try{seed=BigInt(seedInput.value)}catch{seed=1n}const target=Math.min(4,Math.max(1,+terminalInput.value||4)),cfg={pathChance:+pathChance.value||78,branchChance:+branchChance.value||24,maxLength:+maxLength.value||2};maps.innerHTML=quadrants.map((c,i)=>render(i,c,hash(seed,i,0),target,cfg)).join("")}const seedInput=document.getElementById("seed"),terminalInput=document.getElementById("terminals"),maps=document.getElementById("maps");document.getElementById("apply").onclick=update;document.getElementById("regenerate").onclick=()=>{seedInput.value=(BigInt(Date.now())*1000003n).toString();update()};document.querySelectorAll("input").forEach(x=>x.oninput=update);update();</script>)HTML";
+    return true;
+}
+
 bool GenerateInteriorGraphTuner(const std::filesystem::path& outputFile) {
     std::error_code error;
     std::filesystem::create_directories(outputFile.parent_path(), error);

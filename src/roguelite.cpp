@@ -63,7 +63,7 @@ void StartRun(std::uint64_t globalSeed) {
         start.seed, 0x4649525354415245ULL) % 2 == 0
         ? "circle" : "triangle";
     start.downside = static_cast<EnemyDifficultyStat>(Bounded(
-        DeriveRunSeed(start.seed, 0x444f574e53494445ULL), 6));
+        DeriveRunSeed(start.seed, 0x444f574e53494445ULL), 8));
     run.nodes.push_back(std::move(start));
     run.startNode = 0;
     run.currentNode = run.startNode;
@@ -95,6 +95,8 @@ std::uint32_t DifficultyStage(
         case EnemyDifficultyStat::Burst: return stages.burst;
         case EnemyDifficultyStat::Damage: return stages.damage;
         case EnemyDifficultyStat::SpawnerHealth: return stages.spawnerHealth;
+        case EnemyDifficultyStat::SpawnSpeed: return stages.spawnSpeed;
+        case EnemyDifficultyStat::ChildCapacity: return stages.childCapacity;
     }
     return 0;
 }
@@ -104,9 +106,11 @@ const char* DifficultyStatName(EnemyDifficultyStat stat) {
         case EnemyDifficultyStat::Size: return "SIZE";
         case EnemyDifficultyStat::Speed: return "SPEED";
         case EnemyDifficultyStat::Health: return "HEALTH";
-        case EnemyDifficultyStat::Burst: return "SPAWN HERD MODIFIER";
+        case EnemyDifficultyStat::Burst: return "SPAWN HERD SIZE";
         case EnemyDifficultyStat::Damage: return "DAMAGE";
         case EnemyDifficultyStat::SpawnerHealth: return "SPAWNER HEALTH";
+        case EnemyDifficultyStat::SpawnSpeed: return "SPAWN SPEED";
+        case EnemyDifficultyStat::ChildCapacity: return "CHILD CAPACITY";
     }
     return "STAT";
 }

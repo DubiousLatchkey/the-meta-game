@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <system_error>
 
 extern "C" {
@@ -20,6 +23,91 @@ namespace game {
 namespace {
 
 std::vector<std::vector<std::uint8_t>> pristineWordBytes;
+
+std::string ConstantLabel(const std::string& path) {
+    std::string result;
+    for (char value : path) {
+        if (value == '.') {
+            result += " / ";
+        } else if (value == '_') {
+            result.push_back(' ');
+        } else {
+            result.push_back(static_cast<char>(
+                std::toupper(static_cast<unsigned char>(value))));
+        }
+    }
+    return result;
+}
+
+std::string LuaScalarText(lua_State* lua, int index) {
+    if (lua_isinteger(lua, index))
+        return std::to_string(
+            static_cast<long long>(lua_tointeger(lua, index)));
+    if (lua_isnumber(lua, index)) {
+        std::ostringstream output;
+        output << std::setprecision(7) << lua_tonumber(lua, index);
+        return output.str();
+    }
+    if (lua_isboolean(lua, index))
+        return lua_toboolean(lua, index) ? "TRUE" : "FALSE";
+    const char* text = lua_tostring(lua, index);
+    return text ? text : "";
+}
+
+bool SkipConstantTable(const std::string& key) {
+    return key == "sprite" || key == "label" || key == "value_text";
+}
+
+void ReadConstantTable(
+    lua_State* lua, int table, const std::string& prefix,
+    std::vector<WorldConstant>& result, int depth = 0) {
+    if (depth > 6) return;
+    table = lua_absindex(lua, table);
+    lua_pushnil(lua);
+    while (lua_next(lua, table) != 0) {
+        std::string key;
+        if (lua_type(lua, -2) == LUA_TSTRING) {
+            key = lua_tostring(lua, -2);
+        } else if (lua_isinteger(lua, -2)) {
+            key = std::to_string(
+                static_cast<long long>(lua_tointeger(lua, -2)));
+        }
+        if (!key.empty()) {
+            const std::string path =
+                prefix.empty() ? key : prefix + "." + key;
+            if (lua_istable(lua, -1)) {
+                if (!SkipConstantTable(key))
+                    ReadConstantTable(lua, -1, path, result, depth + 1);
+            } else if (lua_isnumber(lua, -1) ||
+                       lua_isboolean(lua, -1) ||
+                       lua_isstring(lua, -1)) {
+                result.push_back({
+                    ConstantLabel(path), LuaScalarText(lua, -1)});
+            }
+        }
+        lua_pop(lua, 1);
+    }
+}
+
+std::vector<WorldConstant> ReadWorldConstants(lua_State* lua, int root) {
+    static constexpr std::array<const char*, 8> roots{{
+        "roguelite", "player_weapons", "player_internals", "boss",
+        "enemies", "interior", "level", "levels"}};
+    std::vector<WorldConstant> result;
+    root = lua_absindex(lua, root);
+    for (const char* name : roots) {
+        lua_getfield(lua, root, name);
+        if (lua_istable(lua, -1))
+            ReadConstantTable(lua, -1, name, result);
+        lua_pop(lua, 1);
+    }
+    std::sort(
+        result.begin(), result.end(),
+        [](const WorldConstant& first, const WorldConstant& second) {
+            return first.label < second.label;
+        });
+    return result;
+}
 
 std::string LuaError(lua_State* lua) {
     const char* text = lua_tostring(lua, -1);
@@ -279,6 +367,10 @@ bool LoadWorldScript(const std::filesystem::path& path) {
             type.burstMax = std::clamp(
                 IntegerField(lua, -1, "burst_max", type.burstMin),
                 type.burstMin, 12);
+            type.spawnSpeed = std::clamp(
+                NumberField(lua, -1, "spawn_speed", 1.0f), 1.0f, 100.0f);
+            type.childCapacity = std::clamp(
+                IntegerField(lua, -1, "child_capacity", 1), 1, 20);
             type.spawnWeight =
                 std::clamp(IntegerField(lua, -1, "spawn_weight", 0), 0, 100);
             type.preferredDistance = std::max(
@@ -438,20 +530,21 @@ bool LoadWorldScript(const std::filesystem::path& path) {
         IntegerField(lua, -1, "burst_max", 6),
         loadedInterior.burstMin, 12);
     loadedInterior.alternateBurstMin = std::clamp(
-        IntegerField(lua, -1, "alternate_burst_min", 4), 1, 10);
+        IntegerField(lua, -1, "alternate_burst_min", 3), 1, 10);
     loadedInterior.alternateBurstMax = std::clamp(
-        IntegerField(lua, -1, "alternate_burst_max", 6),
+        IntegerField(lua, -1, "alternate_burst_max", 5),
         loadedInterior.alternateBurstMin, 12);
     loadedInterior.secondsMin =
-        std::max(0.5f, NumberField(lua, -1, "spawn_seconds_min", 3));
+        std::max(0.5f, NumberField(lua, -1, "spawn_seconds_min", 5));
     loadedInterior.secondsMax = std::max(
         loadedInterior.secondsMin,
-        NumberField(lua, -1, "spawn_seconds_max", 6));
+        NumberField(lua, -1, "spawn_seconds_max", 8));
     loadedInterior.speedUnit =
         std::max(0.0f, NumberField(lua, -1, "speed_unit", 4.0f));
     lua_getfield(lua, -1, "organs");
-    const std::array<const char*, 6> organNames{
-        {"size", "speed", "health", "burst", "damage", "spawner_health"}};
+    const std::array<const char*, 8> organNames{{
+        "size", "speed", "health", "burst", "damage", "spawner_health",
+        "spawn_speed", "child_capacity"}};
     if (lua_istable(lua, -1)) {
         for (const char* name : organNames) {
             lua_getfield(lua, -1, name);
@@ -579,6 +672,8 @@ bool LoadWorldScript(const std::filesystem::path& path) {
             IntegerField(lua, -1, "interior_room_size", 720), 480, 1200);
     }
     lua_pop(lua, 1);
+    std::vector<WorldConstant> loadedWorldConstants =
+        ReadWorldConstants(lua, root);
     lua_close(lua);
 
     if (!loadedTypes.count(loadedInterior.archetype) ||
@@ -600,12 +695,14 @@ bool LoadWorldScript(const std::filesystem::path& path) {
         !loadedPhrases.count("start_game") ||
         !loadedPhrases.count("spawn_herd_modifier") ||
         !loadedPlayerInteriorScaling ||
-        loadedOrgans.size() != 6 || loadedGlyphCount < 94 ||
+        loadedWorldConstants.empty() ||
+        loadedOrgans.size() != 8 || loadedGlyphCount < 94 ||
         loadedLevelValueWord < 0 || loadedLevelMaps.empty())
         return false;
     words = std::move(loadedWords);
     wordIds = std::move(loadedWordIds);
     phrases = std::move(loadedPhrases);
+    worldConstants = std::move(loadedWorldConstants);
     types = std::move(loadedTypes);
     wallAssets = std::move(loadedWallAssets);
     playerWeapons = std::move(loadedPlayerWeapons);
@@ -748,7 +845,7 @@ void ApplyMutations() {
                     static_cast<std::uint32_t>(std::max(0, value));
         } else if (sscanf_s(
                        line.c_str(), "set_player_permanent(%d)", &row) == 1) {
-            if (row >= 0 && row < 8)
+            if (row >= 0 && row < 9)
                 playerInteriorState.permanent[row] = true;
         } else if (sscanf_s(
                        line.c_str(), "set_player_value(%d, %d)",
@@ -805,7 +902,7 @@ bool LoadGoldenWorldForTools() {
 
 void SaveMutations() {
     std::ofstream output(gameDirectory / "mutations.lua", std::ios::trunc);
-    output << "-- Generated persistent giant-enemy state. Press R to reset.\n";
+    output << "-- Generated persistent cosmetic and Player Internals state.\n";
     output << "local function set_pixel(enemy,row,column,r,g,b) end\n";
     output << "local function set_asset_pixel(asset,row,column,r,g,b) end\n";
     output << "local function set_glyph(character,row,column,r,g,b) end\n";
@@ -863,7 +960,7 @@ void SaveMutations() {
     for (int index = 0; index < 3; ++index)
         output << "set_player_rank(" << index << ", "
                << playerInteriorState.repeatableRanks[index] << ")\n";
-    for (int index = 0; index < 8; ++index)
+    for (int index = 0; index < 9; ++index)
         if (playerInteriorState.permanent[index])
             output << "set_player_permanent(" << index << ")\n";
     for (int index = 0; index < 9; ++index)
@@ -875,8 +972,7 @@ void SaveMutations() {
 }
 
 void ResetWordMutations() {
-    if (pristineWordBytes.size() != words.size()) return;
-    for (std::size_t index = 0; index < words.size(); ++index)
+    for (std::size_t index = 0; index < pristineWordBytes.size(); ++index)
         words[index].bytes = pristineWordBytes[index];
     SaveMutations();
     BuildWorldTextBoxes();

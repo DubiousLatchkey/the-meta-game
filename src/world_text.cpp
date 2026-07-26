@@ -94,6 +94,7 @@ void UpdateSpawnerTypes() {
 }
 
 void SelectCurrentLevel() {
+    const std::string previousMap = currentMap;
     const auto selectedRegion = levelRegions.find(levelNumber);
     currentMap = selectedRegion != levelRegions.end()
         ? selectedRegion->second.map : "placeholder";
@@ -101,13 +102,17 @@ void SelectCurrentLevel() {
         const std::string value = std::to_string(levelNumber);
         words[levelValueWord].bytes.assign(value.begin(), value.end());
     }
-    if (currentMap != "interior") {
+    if (currentMap != previousMap) {
+        // Map-owned actors never cross into a different simulation.
         enemies.clear();
+        spawners.clear();
+        lastPlayerRoom = -1;
+    }
+    if (currentMap != "interior") {
         projectiles.clear();
         bombs.clear();
         explosions.clear();
         enemyRails.clear();
-        spawners.clear();
         shieldBlocks.clear();
         textBoxes.clear();
     }

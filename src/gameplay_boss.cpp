@@ -106,6 +106,7 @@ void BuildBossTurrets(
         const int burstCount = bossTuning.burstTurretsPerQuadrant;
         const int rocketCount = bossTuning.rocketTurretsPerQuadrant;
         const int total = burstCount + rocketCount;
+        std::vector<int> assignedRooms;
         for (int index = 0; index < total; ++index) {
             BossTurret turret;
             turret.quadrant = quadrant;
@@ -124,10 +125,23 @@ void BuildBossTurrets(
             turret.fireCooldown = 0.4f + 0.2f * static_cast<float>(index);
             turret.alive = true;
             turret.health = bossTuning.turretTargetHealth;
-            if (!quadrantRooms.empty())
-                turret.targetRoom = quadrantRooms[
+            if (!quadrantRooms.empty()) {
+                const std::size_t start = static_cast<std::size_t>(
                     DeriveRunSeed(seed, 0x524f4f4dULL, index) %
-                        quadrantRooms.size()];
+                    quadrantRooms.size());
+                for (std::size_t offset = 0;
+                     offset < quadrantRooms.size(); ++offset) {
+                    const int room = quadrantRooms[
+                        (start + offset) % quadrantRooms.size()];
+                    if (std::find(
+                            assignedRooms.begin(), assignedRooms.end(),
+                            room) == assignedRooms.end()) {
+                        turret.targetRoom = room;
+                        assignedRooms.push_back(room);
+                        break;
+                    }
+                }
+            }
             run.boss.turrets.push_back(turret);
         }
     }
@@ -208,6 +222,18 @@ bool HitBoss(const Rect& shot, int damage) {
         RunNode* node = CurrentRunNode();
         if (node) {
             node->completed = true;
+            node->portals.clear();
+            RunPortal portal;
+            portal.active = true;
+            portal.armed = false;
+            portal.postBossTuning = true;
+            portal.direction = PortalDirection::South;
+            portal.interiorTrigger = {
+                runArena.bounds.x + runArena.bounds.width * 0.5f - 36.0f,
+                runArena.bounds.y + runArena.bounds.height - 180.0f,
+                72.0f, 72.0f};
+            node->portals.push_back(portal);
+            RebuildGameplayTextBoxes();
             run.status = RunStatus::Won;
             run.boss.turrets.clear();
             run.boss.projectiles.clear();
@@ -219,6 +245,12 @@ bool HitBoss(const Rect& shot, int damage) {
 
 void UpdateBossFight(float dt) {
     if (!BossFightMode() || run.boss.health <= 0) return;
+    // Travel around the arena at the standard player movement rate.
+    run.boss.orbitAngle += kPlayerSpeed / run.boss.orbitRadius * dt;
+    run.boss.centerX = run.boss.orbitCenterX +
+        std::cos(run.boss.orbitAngle) * run.boss.orbitRadius;
+    run.boss.centerY = run.boss.orbitCenterY +
+        std::sin(run.boss.orbitAngle) * run.boss.orbitRadius;
     run.boss.contactCooldown =
         std::max(0.0f, run.boss.contactCooldown - dt);
     const Rect player{playerX, playerY, kPlayerSize, kPlayerSize};
@@ -296,15 +328,23 @@ void UpdateBossFight(float dt) {
 void InitializeBossFight(RunNode& node) {
     run.boss = BossFightState{};
     run.boss.active = true;
-    run.boss.centerX = kRunArenaWidth * 0.5f;
-    run.boss.centerY = kRunArenaHeight * 0.45f;
+    run.boss.orbitCenterX = runArena.bounds.x +
+        runArena.bounds.width * 0.5f;
+    run.boss.orbitCenterY = runArena.bounds.y +
+        runArena.bounds.height * 0.5f;
+    run.boss.orbitRadius = std::min(
+        runArena.bounds.width, runArena.bounds.height) * 0.23f;
+    run.boss.orbitAngle = -kPi * 0.5f;
+    run.boss.centerX = run.boss.orbitCenterX;
+    run.boss.centerY = run.boss.orbitCenterY - run.boss.orbitRadius;
     run.boss.radiusX = bossTuning.radiusX;
     run.boss.radiusY = bossTuning.radiusY;
     run.boss.maxHealth = bossTuning.health;
     run.boss.health = bossTuning.health;
     BuildBossTurrets(node.seed, false, BossQuadrant::NorthWest, false);
-    playerX = kRunArenaWidth * 0.5f - kPlayerSize * 0.5f;
-    playerY = kRunArenaHeight - 120.0f;
+    playerX = runArena.bounds.x + runArena.bounds.width * 0.5f -
+        kPlayerSize * 0.5f;
+    playerY = runArena.bounds.y + runArena.bounds.height - 120.0f;
 }
 
 }  // namespace game

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <functional>
 #include <numeric>
 #include <queue>
 
@@ -145,6 +146,117 @@ bool BuildBloomGraph(
     return true;
 }
 
+bool BuildBacktrackingBloomGraph(
+    std::uint64_t seed, int organCount, int& spawn,
+    std::vector<int>& organRooms) {
+    constexpr int kMaximumPathLength = 2;
+    static constexpr int dr[]{-1, 1, 0, 0};
+    static constexpr int dc[]{0, 0, -1, 1};
+    struct SearchState {
+        std::vector<bool> visited;
+        std::vector<BloomFrontier> pending;
+        std::set<std::pair<int, int>> edges;
+        std::vector<int> targets;
+    };
+    if (rooms.empty()) return false;
+    spawn = static_cast<int>(
+        ConnectionSeed(seed, 0, static_cast<int>(rooms.size())) %
+        rooms.size());
+    auto neighbors = [&](int room, const std::vector<bool>& visited) {
+        std::vector<int> result;
+        for (int direction = 0; direction < 4; ++direction) {
+            const int next = RoomIndexAt(
+                rooms[room].row + dr[direction],
+                rooms[room].column + dc[direction]);
+            if (next >= 0 && !visited[next]) result.push_back(next);
+        }
+        std::sort(result.begin(), result.end(), [&](int first, int second) {
+            return ConnectionSeed(seed, room, first) <
+                ConnectionSeed(seed, room, second);
+        });
+        return result;
+    };
+    for (int offset = 0; offset < static_cast<int>(rooms.size()); ++offset) {
+        const int candidate =
+            (spawn + offset) % static_cast<int>(rooms.size());
+        std::vector<bool> empty(rooms.size(), false);
+        if (!neighbors(candidate, empty).empty()) {
+            spawn = candidate;
+            break;
+        }
+    }
+    SearchState initial;
+    initial.visited.assign(rooms.size(), false);
+    initial.visited[spawn] = true;
+    initial.pending.push_back({spawn, 0, {}});
+    int budget = 200000;
+    std::function<bool(SearchState&)> search = [&](SearchState& state) {
+        if (--budget <= 0) return false;
+        if (static_cast<int>(state.targets.size()) == organCount) {
+            for (const BloomFrontier& unfinished : state.pending)
+                for (const auto& edge : unfinished.rollback)
+                    state.edges.erase(edge);
+            state.pending.clear();
+            return true;
+        }
+        if (state.pending.empty()) return false;
+        BloomFrontier path = state.pending.back();
+        state.pending.pop_back();
+        std::vector<int> candidates = neighbors(path.room, state.visited);
+        const int needed =
+            organCount - static_cast<int>(state.targets.size());
+        // Try forks first because each fork increases terminal capacity.
+        if (path.room != spawn && path.length < kMaximumPathLength &&
+            needed > 1)
+            for (std::size_t first = 0; first < candidates.size(); ++first)
+                for (std::size_t second = first + 1;
+                     second < candidates.size(); ++second) {
+                    SearchState branch = state;
+                    for (int next : {candidates[first], candidates[second]}) {
+                        branch.visited[next] = true;
+                        const auto edge = RoomEdge(path.room, next);
+                        branch.edges.insert(edge);
+                        branch.pending.push_back({next, 1, {edge}});
+                    }
+                    if (search(branch)) {
+                        state = std::move(branch);
+                        return true;
+                    }
+                }
+        if (path.length < kMaximumPathLength)
+            for (int next : candidates) {
+                SearchState branch = state;
+                branch.visited[next] = true;
+                const auto edge = RoomEdge(path.room, next);
+                branch.edges.insert(edge);
+                BloomFrontier child{next, path.length + 1, path.rollback};
+                child.rollback.push_back(edge);
+                branch.pending.push_back(std::move(child));
+                if (search(branch)) {
+                    state = std::move(branch);
+                    return true;
+                }
+            }
+        if (path.room != spawn) {
+            SearchState terminal = state;
+            terminal.targets.push_back(path.room);
+            if (search(terminal)) {
+                state = std::move(terminal);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (!search(initial)) {
+        roomConnections.clear();
+        organRooms.clear();
+        return false;
+    }
+    roomConnections = std::move(initial.edges);
+    organRooms = std::move(initial.targets);
+    return static_cast<int>(organRooms.size()) == organCount;
+}
+
 void AddSplitHorizontal(
     std::vector<WallRect>& walls, int room, float x, float y, bool exit) {
     const float size = static_cast<float>(interior.roomSize);
@@ -174,7 +286,10 @@ void AddSplitVertical(
 bool BuildRoomBloomGraph(
     std::uint64_t seed, int targetCount, int& spawnRoom,
     std::vector<int>& targetRooms) {
-    return BuildBloomGraph(seed, targetCount, spawnRoom, targetRooms);
+    if (BuildBloomGraph(seed, targetCount, spawnRoom, targetRooms))
+        return true;
+    return BuildBacktrackingBloomGraph(
+        seed, targetCount, spawnRoom, targetRooms);
 }
 
 void GenerateRooms(std::uint64_t seed) {

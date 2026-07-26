@@ -8,24 +8,16 @@ namespace game {
 
 namespace {
 
-std::array<int, 9> PlayerAlterationRooms(const RunNode& node) {
-    std::array<int, 9> order{{0,1,2,3,4,5,6,7,8}};
-    std::sort(order.begin(), order.end(), [&](int first, int second) {
-        if (rooms[first].distance != rooms[second].distance)
-            return rooms[first].distance < rooms[second].distance;
-        return DeriveRunSeed(node.seed, 0x504c41594552ULL, first) <
-            DeriveRunSeed(node.seed, 0x504c41594552ULL, second);
-    });
-    return order;
-}
-
 PlayerAlteration AlterationForRoom(const RunNode& node, int room) {
-    const auto order = PlayerAlterationRooms(node);
-    const auto found = std::find(order.begin(), order.end(), room);
-    const int slot = static_cast<int>(std::distance(order.begin(), found));
-    return slot < 8
-        ? static_cast<PlayerAlteration>(slot + 3)
-        : PlayerAlteration::Count;
+    (void)node;
+    static constexpr std::array<PlayerAlteration, 9> layout{{
+        PlayerAlteration::SecondMultishot, PlayerAlteration::ExtraProjectileLimiter,
+        PlayerAlteration::DualPrimary, PlayerAlteration::InfiniteHoming,
+        PlayerAlteration::Regeneration, PlayerAlteration::InfiniteMultishot,
+        PlayerAlteration::DualSecondary, PlayerAlteration::ExtraLife,
+        PlayerAlteration::InfiniteAutoRocket}};
+    return room >= 0 && room < static_cast<int>(layout.size())
+        ? layout[room] : PlayerAlteration::Count;
 }
 
 Rect PlayerAlterationNumberTarget(int room) {
@@ -90,6 +82,9 @@ bool HitPlayerAlteration(const Rect& shot) {
         if (!Overlaps(shot, PlayerAlterationNumberTarget(room))) continue;
         const PlayerAlteration alteration = AlterationForRoom(*node, room);
         const int value = static_cast<int>(alteration);
+        if (!playerInteriorState.permanent[0] &&
+            alteration != PlayerAlteration::Regeneration)
+            return true;
         if (alteration == PlayerAlteration::Count ||
             playerInteriorState.permanent[value - 3])
             return true;
@@ -138,9 +133,9 @@ const char* PlayerAlterationName(PlayerAlteration alteration) {
         "", "", "",
         "REGENERATION LIMITER", "MULTISHOT LIMITER", "HOMING LIMITER",
         "AUTO ROCKET LIMITER", "PRIMARY LIMITER", "SECONDARY LIMITER",
-        "EXTRA PROJECTILE LIMITER", "MULTISHOT LIMITER II"};
+        "EXTRA PROJECTILE LIMITER", "MULTISHOT LIMITER II", "EXTRA LIFE"};
     const int index = static_cast<int>(alteration);
-    return index >= 0 && index < 11 ? names[index] : "ALTERATION";
+    return index >= 0 && index < 12 ? names[index] : "ALTERATION";
 }
 
 int PlayerAlterationValue(PlayerAlteration alteration) {

@@ -1,6 +1,12 @@
 # Project guidance
 
-- This is a Win32 C++ renderer with a sandboxed Lua data layer. Build with `build.bat`.
+- This is a Win32 C++ renderer with a sandboxed Lua data layer. Build with
+  `build.bat`. The Makefile uses NMake batch-mode inference rules plus MSVC
+  `/MP` so stale translation units compile together; preserve batching when
+  changing compile rules. Release executables embed the shared application
+  manifest and per-binary version resources from `src`; compile resources
+  before linking, and apply any Authenticode signature only after the final
+  link.
 - Keep behavior separated under `src`: platform startup in `app`, shared data in
   `state`, Lua/world generation in the `world_*` units, simulation in
   `gameplay`/`gameplay_*`, and drawing in `rendering`/`rendering_*`. Preserve
@@ -12,7 +18,10 @@
   geometry pixel, updates DirectSound immediately, and batches WAV persistence.
 - Lua levels occupy non-overlapping regions in one world coordinate space.
   Keep each level's simulation and geometry state separate, and sleep gameplay
-  entities beyond five screen lengths from the player.
+  entities beyond five screen lengths from the player. Sleeping enemies and
+  spawners must stay out of crowding, targeting, collision, and rendering hot
+  paths; clear map-owned enemies and spawners whenever the simulation map
+  changes.
 - The selected enemy sprite is the room graph (currently `circle`): occupied
   cells are square rooms, cardinal neighbors are exits, and each cell's RGB
   values color its walls.
@@ -25,6 +34,15 @@
   level selector is exposed by its dedicated level geometry.
 - Enemy stats, sprites, burst sizes, spawn weights, and special-attack tuning
   live in Lua. C++ owns charger/shooter state machines and rail collision.
+- Enemy-arena downsides add one stage through level 5, two stages at levels
+  6-8, and three stages from level 9 onward (the opening arena remains
+  baseline). Spawn speed is a seventh enemy organ: Lua stores a normalized
+  value whose minimum and baseline are 1; each difficulty stage adds one to
+  the displayed value but only 10% to the actual spawn rate.
+  Child capacity is an eighth normalized enemy organ: Lua value 1 caps each
+  spawner at twice its current maximum herd size, and each stage adds one more
+  herd-size multiple.
+  Default spawn delays are 5-8 seconds, and large-herd ranges are 3-5.
 - Keep audio decoding/playback/persistence in `audio` and audio-derived world
   collision/layout in `audio_level`.
 - Keep level 8 rotated glyph-border layout and collision in `glyph_level`.
@@ -32,8 +50,9 @@
 - Keep deterministic run-choice generation in `roguelite`, generalized sealed
   collision/openings in `arena_level`, run combat in `gameplay`, and run
   presentation in `rendering`. Run-node UI must not create mutable `Word`
-  records or persistence entries. Shop `RESET WORDS` restores only the
-  pre-mutation Word-byte baseline.
+  records or persistence entries; portal labels reference the shared Lua world
+  vocabulary. Shop `RESET WORDS` restores only the pre-mutation
+  Word-byte baseline.
 - Roguelite tuning and reusable portal/powerup icon masks live in the immutable
   Lua world. Run choices, coins, offers, pickups, timers, and enemy-difficulty
   stages are session-only; death creates a fresh seed and restores baseline
@@ -60,6 +79,10 @@
   quadrant for the final boss of the current run only.
 - The terminal Boss is a large sealed-arena oval with sweeping burst turrets and
   lock-then-ballistic rocket turrets. Destroying the body wins the run.
+- The post-boss tuning room is a dedicated, non-debug arena owned by
+  `gameplay_tuning`. It lists scalar gameplay configuration exported by
+  `world.lua` (excluding word/glyph/sprite assets) and exits directly to the
+  title screen.
 - P enters the run-local debug arena; repeatable upgrades, respawning powerups,
   and enemy spawner toggles must not award coins or advance progression.
 - Keep game logic/data in Lua where practical and keep the C++ host stable enough

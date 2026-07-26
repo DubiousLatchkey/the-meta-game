@@ -15,31 +15,43 @@ float menuFadeRemaining = 0;
 constexpr float kMenuFadeSeconds = 0.75f;
 
 void AddMenuPhrase(
-    const char* id, float centerX, float y, bool title, bool start) {
+    const char* id, float centerX, float y, bool title, bool start,
+    float wordSpacing = text_renderer::kGlyphAdvance) {
     const auto found = phrases.find(id);
     if (found == phrases.end()) return;
-    float x = centerX - PhraseWidth(found->second) * 0.5f;
+    float phraseWidth = 0;
+    for (int word : found->second)
+        phraseWidth += static_cast<float>(
+            text_renderer::MeasureWidth(words[word].bytes.size()));
+    if (found->second.size() > 1)
+        phraseWidth += wordSpacing * static_cast<float>(
+            found->second.size() - 1);
+    float x = centerX - phraseWidth * 0.5f;
     for (int word : found->second) {
         const float width = static_cast<float>(
             text_renderer::MeasureWidth(words[word].bytes.size()));
         textBoxes.push_back({
             {x, y, width, static_cast<float>(text_renderer::kGlyphHeight)},
             word, -1, false, false, title, start});
-        x += width + text_renderer::kGlyphAdvance;
+        x += width + wordSpacing;
     }
 }
 
 void BuildMenuText() {
     textBoxes.clear();
-    AddMenuPhrase(
-        "main_title", kRunArenaWidth * 0.5f, 360.0f, true, false);
+    if (!menuPortalActive)
+        AddMenuPhrase(
+            "main_title", kRunArenaWidth * 0.5f, 360.0f, true, false);
     AddMenuPhrase(
         "start_game", kRunArenaWidth * 0.5f, 680.0f, false, true);
+    AddMenuPhrase(
+        "menu_controls", kRunArenaWidth * 0.5f, 760.0f, false, false, 54.0f);
 }
 
 void ConfigureMenu(bool placePlayer) {
     menuActive = true;
     debugRoom = false;
+    postBossTuningRoom = false;
     run.mapActive = false;
     currentMap = "interior";
     projectiles.clear();
@@ -81,7 +93,7 @@ float MainMenuTitleAlpha() {
 }
 
 Rect MainMenuPortalRect() {
-    return {kRunArenaWidth * 0.5f - 36.0f, 770.0f, 72, 72};
+    return {kRunArenaWidth * 0.5f - 36.0f, 334.0f, 72, 72};
 }
 
 void TriggerMainMenuStart() {
@@ -97,9 +109,10 @@ void UpdateMainMenu(float dt) {
     StartFreshRun(false);
     menuStarting = false;
     menuPortalActive = true;
-    // Starting a run preserves where the player shot START GAME so the
-    // newly opened portal below it can be reached naturally. Full reset and
-    // death still enter the menu through EnterMainMenu(), which respawns them.
+    // Starting a run preserves where the player shot START GAME while the
+    // faded-out title position becomes the new portal destination. Full reset
+    // and death still enter the menu through EnterMainMenu(), which respawns
+    // the player.
     ConfigureMenu(false);
 }
 

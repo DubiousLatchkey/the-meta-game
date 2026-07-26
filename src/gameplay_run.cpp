@@ -70,6 +70,8 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
                     UpgradeRank(UpgradeType::BombCooldown));
     result.damage += static_cast<int>(
         UpgradeRank(UpgradeType::ProjectileDamage));
+    if (id == "bomb" || id == "contact_bomb" || id == "homing_rocket")
+        result.damage += static_cast<int>(UpgradeRank(UpgradeType::BombDamage));
     result.projectilesPerShot +=
         playerInteriorState.permanent[6] ? 1 : 0;
     if (run.multishotRemaining > 0)
@@ -143,7 +145,7 @@ RunNodeId AppendChoiceNode(
     }
     if (type == RunNodeType::EnemyArena) {
         choice.downside = static_cast<EnemyDifficultyStat>(
-            DeriveRunSeed(seed, 0x444f574e53494445ULL) % 6);
+            DeriveRunSeed(seed, 0x444f574e53494445ULL) % 8);
         choice.hardArena =
             DeriveRunSeed(seed, 0x48415244ULL) % 4 == 0;
     } else if (type == RunNodeType::BossInterior) {
@@ -260,6 +262,8 @@ std::uint32_t& MutableEnemyStage(
         case EnemyDifficultyStat::Burst: return stages.burst;
         case EnemyDifficultyStat::Damage: return stages.damage;
         case EnemyDifficultyStat::SpawnerHealth: return stages.spawnerHealth;
+        case EnemyDifficultyStat::SpawnSpeed: return stages.spawnSpeed;
+        case EnemyDifficultyStat::ChildCapacity: return stages.childCapacity;
     }
     return stages.size;
 }
@@ -272,6 +276,9 @@ bool OrganDifficultyStat(
     else if (id == "burst") stat = EnemyDifficultyStat::Burst;
     else if (id == "damage") stat = EnemyDifficultyStat::Damage;
     else if (id == "spawner_health") stat = EnemyDifficultyStat::SpawnerHealth;
+    else if (id == "spawn_speed") stat = EnemyDifficultyStat::SpawnSpeed;
+    else if (id == "child_capacity")
+        stat = EnemyDifficultyStat::ChildCapacity;
     else return false;
     return true;
 }
@@ -286,6 +293,9 @@ int BaseStatValue(const EnemyType& type, EnemyDifficultyStat stat) {
             return (type.burstMin + type.burstMax + 1) / 2;
         case EnemyDifficultyStat::Damage: return type.contactDamage;
         case EnemyDifficultyStat::SpawnerHealth: return 5;
+        case EnemyDifficultyStat::SpawnSpeed:
+            return static_cast<int>(std::lround(type.spawnSpeed));
+        case EnemyDifficultyStat::ChildCapacity: return type.childCapacity;
     }
     return 0;
 }
@@ -296,6 +306,9 @@ int DisplayEnemyOrganValue(
     // Size, speed, and burst retain their native simulation units. Their
     // shootable labels instead expose the normalized difficulty rank, whose
     // floor is one. Health remains a direct health-value display.
+    if (stat == EnemyDifficultyStat::SpawnSpeed ||
+        stat == EnemyDifficultyStat::ChildCapacity)
+        return BaseStatValue(type, stat) + static_cast<int>(stage);
     if (stat != EnemyDifficultyStat::Health &&
         stat != EnemyDifficultyStat::Damage &&
         stat != EnemyDifficultyStat::SpawnerHealth)
@@ -336,11 +349,19 @@ void ResetEnemyDifficultyProgress() {
 void ApplyArenaDownside(RunNode& node) {
     if (node.type != RunNodeType::EnemyArena || node.downsideApplied)
         return;
+    // The opening arena is the baseline tutorial encounter: it must not
+    // advance any session-only enemy difficulty stage.
+    if (node.id == run.startNode) {
+        node.downsideApplied = true;
+        return;
+    }
     static constexpr const char* enemyArchetypes[]{
         "circle", "triangle", "charger", "shooter"};
+    const std::uint32_t downsideIncrease =
+        node.depth >= 9 ? 3u : node.depth > 5 ? 2u : 1u;
     for (const char* archetype : enemyArchetypes)
         if (types.count(archetype))
-            ++MutableEnemyStage(archetype, node.downside);
+            MutableEnemyStage(archetype, node.downside) += downsideIncrease;
     node.downsideApplied = true;
 }
 
@@ -356,8 +377,9 @@ void RebuildRunArena(RunNode& node) {
     const PortalDirection fullAudioDirection =
         static_cast<PortalDirection>(DeriveRunSeed(
             node.seed, 0x46554c4c44495245ULL) % 4);
+    const float arenaScale = node.type == RunNodeType::Boss ? 1.5f : 1.0f;
     runArena = BuildArenaLevel(
-        {0, 0, kRunArenaWidth, kRunArenaHeight},
+        {0, 0, kRunArenaWidth * arenaScale, kRunArenaHeight * arenaScale},
         node.seed, {}, 12, kWall, false, fullAudioWall, fullAudioSound,
         fullAudioDirection);
     // Keep choice portals in their intended cardinal directions while moving
@@ -410,10 +432,15 @@ Rect InteriorEntryPortalRect(int entryRoom) {
 }
 
 Rect PhysicalExitPortalRect() {
+    if (postBossTuningRoom)
+        return {
+            runArena.bounds.x + runArena.bounds.width * 0.5f - 36.0f,
+            runArena.bounds.y + runArena.bounds.height - 150.0f,
+            72, 72};
     if (debugRoom)
         return {kRunArenaWidth * 0.5f - 36.0f,
                 kRunArenaHeight * 0.5f - 36.0f, 72, 72};
-    const RunNode* node = CurrentRunNode();
+    RunNode* node = CurrentRunNode();
     if (node && (node->type == RunNodeType::Interior ||
                  node->type == RunNodeType::PlayerInterior ||
                  node->type == RunNodeType::BossInterior) &&
@@ -432,18 +459,110 @@ Rect PhysicalExitPortalRect() {
 }
 
 void AppendPortalTextBoxes() {
-    const bool active = debugRoom;
-    const auto phrase = phrases.find("exit_to_map");
-    if (!active || phrase == phrases.end()) return;
-    const Rect label = PortalLabelRect();
-    float x = label.x;
-    for (int word : phrase->second) {
-        const float width = static_cast<float>(
-            text_renderer::MeasureWidth(words[word].bytes.size()));
-        textBoxes.push_back({
-            {x, label.y, width,
-             static_cast<float>(text_renderer::kGlyphHeight)}, word});
-        x += width + text_renderer::kGlyphAdvance;
+    RunNode* node = CurrentRunNode();
+    if (!node || (node->type != RunNodeType::EnemyArena &&
+                  node->type != RunNodeType::Interior &&
+                  node->type != RunNodeType::Boss))
+        return;
+    auto addTarget = [](int word, const Rect& rect) {
+        if (word >= 0) textBoxes.push_back({rect, word});
+    };
+    const auto coreWord = [](const std::string& id) {
+        const auto found = wordIds.find(id);
+        return found == wordIds.end() ? -1 : found->second;
+    };
+    const auto detailWordId = [](EnemyDifficultyStat stat) {
+        switch (stat) {
+            case EnemyDifficultyStat::Size:
+                return "portal_all_enemy_size";
+            case EnemyDifficultyStat::Speed:
+                return "portal_all_enemy_speed";
+            case EnemyDifficultyStat::Health:
+                return "portal_all_enemy_health";
+            case EnemyDifficultyStat::Burst:
+                return "portal_all_enemy_burst";
+            case EnemyDifficultyStat::Damage:
+                return "portal_all_enemy_damage";
+            case EnemyDifficultyStat::SpawnerHealth:
+                return "portal_all_enemy_spawner_health";
+            case EnemyDifficultyStat::SpawnSpeed:
+                return "portal_all_enemy_spawn_speed";
+            case EnemyDifficultyStat::ChildCapacity:
+                return "portal_all_enemy_child_capacity";
+        }
+        return "";
+    };
+    for (RunPortal& portal : node->portals) {
+        if (!portal.active) continue;
+        if (portal.postBossTuning) {
+            const Rect portalRect = portal.interiorTrigger;
+            const int word = coreWord("portal_tuning_room");
+            if (word < 0) continue;
+            portal.labelWord = word;
+            const float width = static_cast<float>(
+                text_renderer::MeasureWidth(words[word].bytes.size()));
+            textBoxes.push_back({{
+                CenterX(portalRect) - width * 0.5f,
+                portalRect.y - text_renderer::kGlyphHeight - 16, width,
+                static_cast<float>(text_renderer::kGlyphHeight)}, word});
+            continue;
+        }
+        const RunNode* destination = GetRunNode(run, portal.destination);
+        if (!destination) continue;
+        const std::string archetype = destination->arenaArchetype;
+        const std::string labelId =
+            destination->type == RunNodeType::EnemyArena
+                ? "portal_" + archetype + "_arena" :
+            destination->type == RunNodeType::Interior
+                ? "portal_inside_" + archetype :
+            destination->type == RunNodeType::PlayerInterior
+                ? "portal_inside_player" :
+            destination->type == RunNodeType::BossInterior
+                ? "portal_inside_boss" :
+            destination->type == RunNodeType::Boss ? "portal_boss" :
+                "portal_shop";
+        const int labelWord = coreWord(labelId);
+        if (labelWord >= 0) portal.labelWord = labelWord;
+        const bool hasDetail =
+            destination->type == RunNodeType::EnemyArena;
+        if (hasDetail) {
+            const int detailWord =
+                coreWord(detailWordId(destination->downside));
+            if (detailWord >= 0) portal.detailWord = detailWord;
+        }
+        const Rect portalRect = portal.interiorTrigger.width > 0
+            ? portal.interiorTrigger : PhysicalExitPortalRect();
+        const bool horizontal = portal.direction == PortalDirection::East ||
+            portal.direction == PortalDirection::West;
+        const float leftWidth = portal.labelWord >= 0
+            ? static_cast<float>(text_renderer::MeasureWidth(
+                  words[portal.labelWord].bytes.size()))
+            : 0.0f;
+        if (horizontal)
+            addTarget(portal.labelWord,
+                {CenterX(portalRect) - leftWidth * 0.5f,
+                portalRect.y - text_renderer::kGlyphHeight - 16,
+                leftWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+        else
+            addTarget(portal.labelWord,
+                {portalRect.x - leftWidth - 18,
+                CenterY(portalRect) - text_renderer::kGlyphHeight * 0.5f,
+                leftWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+        if (!hasDetail) continue;
+        const float rightWidth = portal.detailWord >= 0
+            ? static_cast<float>(text_renderer::MeasureWidth(
+                  words[portal.detailWord].bytes.size()))
+            : 0.0f;
+        if (horizontal)
+            addTarget(portal.detailWord,
+                {CenterX(portalRect) - rightWidth * 0.5f,
+                portalRect.y + portalRect.height + 16, rightWidth,
+                static_cast<float>(text_renderer::kGlyphHeight)});
+        else
+            addTarget(portal.detailWord,
+                {portalRect.x + portalRect.width + 18,
+                CenterY(portalRect) - text_renderer::kGlyphHeight * 0.5f,
+                rightWidth, static_cast<float>(text_renderer::kGlyphHeight)});
     }
 }
 
@@ -451,7 +570,8 @@ void RebuildGameplayTextBoxes() {
     const RunNode* node = CurrentRunNode();
     if (debugRoom || !node ||
         (node->type != RunNodeType::Interior &&
-         node->type != RunNodeType::BossInterior))
+         node->type != RunNodeType::BossInterior &&
+         node->type != RunNodeType::Boss))
         textBoxes.clear();
     else if (node->type == RunNodeType::Interior)
         BuildWorldTextBoxes();
@@ -524,6 +644,7 @@ void ConfigureNode(RunNode& node) {
     shieldBlocks.clear();
     spawners.clear();
     enemies.clear();
+    lastPlayerRoom = -1;
     playerX = kRunArenaWidth * 0.5f - kPlayerSize * 0.5f;
     playerY = kRunArenaHeight - 100.0f;
     random.seed(static_cast<std::uint32_t>(
@@ -570,8 +691,7 @@ void ConfigureNode(RunNode& node) {
         portal.direction = PortalDirection::North;
         portal.center = kRunArenaWidth * 0.5f;
         portal.width = rogueliteTuning.portalWidth;
-        portal.active = node.completed || node.type == RunNodeType::Interior ||
-            node.type == RunNodeType::Shop;
+        portal.active = node.completed || node.type == RunNodeType::Shop;
         if ((node.type == RunNodeType::Interior ||
              node.type == RunNodeType::PlayerInterior ||
              node.type == RunNodeType::BossInterior) && !rooms.empty()) {
@@ -612,14 +732,15 @@ void ConfigureNode(RunNode& node) {
             static const UpgradeType upgrades[]{
                 UpgradeType::FireRate, UpgradeType::BombCooldown,
                 UpgradeType::MoveSpeed, UpgradeType::Invincibility,
-                UpgradeType::ProjectileDamage, UpgradeType::MaxHealth};
+                UpgradeType::ProjectileDamage, UpgradeType::BombDamage,
+                UpgradeType::MaxHealth};
             const std::uint32_t rotation = static_cast<std::uint32_t>(
-                DeriveRunSeed(node.seed, 0x4f46464552ULL) % 6);
+                DeriveRunSeed(node.seed, 0x4f46464552ULL) % 7);
             for (std::uint32_t index = 0; index < 3; ++index) {
                 ShopOffer offer;
                 offer.id =
                     DeriveRunSeed(node.seed, 0x53484f50ULL, index);
-                offer.upgrade = upgrades[(rotation + index) % 6];
+                offer.upgrade = upgrades[(rotation + index) % 7];
                 offer.price = rogueliteTuning.shopPrice;
                 node.shopOffers.push_back(offer);
             }
@@ -717,6 +838,7 @@ void EnterRunMap() {
     enemies.clear();
     textBoxes.clear();
     shieldBlocks.clear();
+    lastPlayerRoom = -1;
     playerX = std::clamp(
         current->x - 115.0f, 0.0f, kRunMapWidth - kPlayerSize);
     playerY = std::clamp(
@@ -837,6 +959,7 @@ const char* UpgradeName(UpgradeType type) {
     switch (type) {
         case UpgradeType::FireRate: return "FIRE RATE";
         case UpgradeType::BombCooldown: return "BOMB RATE";
+        case UpgradeType::BombDamage: return "BOMB DAMAGE";
         case UpgradeType::MoveSpeed: return "MOVE SPEED";
         case UpgradeType::MaxHealth: return "MAX HEALTH";
         case UpgradeType::ProjectileDamage: return "SHOT DAMAGE";
@@ -918,6 +1041,7 @@ void StartFreshRun(bool enterFirstNode) {
     ResetEnemyDifficultyProgress();
     playerHealth = kPlayerMaxHealth;
     playerInvincibility = 0;
+    run.extraLifeAvailable = playerInteriorState.permanent[8];
     if (enterFirstNode) {
         RunNode* node = CurrentRunNode();
         if (node) ConfigureNode(*node);

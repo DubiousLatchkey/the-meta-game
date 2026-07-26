@@ -2,8 +2,10 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <xinput.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +19,46 @@
 
 namespace game {
 namespace {
+
+void UpdateController(HWND window) {
+    XINPUT_STATE state{};
+    if (XInputGetState(0, &state) != ERROR_SUCCESS) {
+        static bool firing = false;
+        if (firing) ReleasePrimaryFire(aimX, aimY);
+        firing = false;
+        return;
+    }
+    const XINPUT_GAMEPAD& pad = state.Gamepad;
+    const auto axis = [](SHORT value) {
+        const float normalized = static_cast<float>(value) / 32767.0f;
+        return std::abs(normalized) < 0.22f ? 0.0f : normalized;
+    };
+    keys[0] = axis(pad.sThumbLX) < 0;
+    keys[1] = axis(pad.sThumbLX) > 0;
+    keys[2] = axis(pad.sThumbLY) > 0;
+    keys[3] = axis(pad.sThumbLY) < 0;
+
+    const float rightX = axis(pad.sThumbRX);
+    const float rightY = axis(pad.sThumbRY);
+    if (rightX != 0 || rightY != 0) {
+        RECT client{};
+        GetClientRect(window, &client);
+        aimX = (client.right - client.left) / 2 +
+            static_cast<int>(rightX * 1000.0f);
+        aimY = (client.bottom - client.top) / 2 -
+            static_cast<int>(rightY * 1000.0f);
+    }
+    static bool firing = false;
+    const bool primary = pad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+    if (primary) BeginPrimaryFire(aimX, aimY);
+    else if (firing) ReleasePrimaryFire(aimX, aimY);
+    firing = primary;
+    static bool secondaryHeld = false;
+    const bool secondary = pad.bLeftTrigger >
+        XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+    if (secondary && !secondaryHeld) FireSecondary(aimX, aimY);
+    secondaryHeld = secondary;
+}
 
 LRESULT CALLBACK WindowProcedure(
     HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -35,12 +77,7 @@ LRESULT CALLBACK WindowProcedure(
                 EnterMainMenu();
             if (down && wParam == 'P') EnterDebugRoom();
             if (down && wParam == 'O') DebugClearCurrentNode();
-            if (down && wParam == 'R') {
-                if (ReloadWorld(true)) {
-                    ResetAudio();
-                    EnterMainMenu();
-                }
-            }
+            if (down && wParam == 'R') EnterMainMenu();
             if (down && wParam == VK_ESCAPE) DestroyWindow(window);
             return 0;
         }
@@ -124,6 +161,20 @@ int WINAPI wWinMain(
             root.parent_path() / "test" / "interior_graphs";
         if (!LoadGoldenWorldForTools() ||
             !GenerateInteriorGraphGallery(output, 20))
+            return 1;
+        const std::wstring index =
+            (output / "index.html").wstring();
+        ShellExecuteW(
+            nullptr, L"open", index.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return 0;
+    }
+    if (commandLine &&
+        std::wstring(commandLine).find(L"--generate-boss-interior-graphs") !=
+            std::wstring::npos) {
+        const auto output =
+            root.parent_path() / "test" / "boss_interior_graphs";
+        if (!LoadGoldenWorldForTools() ||
+            !GenerateBossInteriorGraphGallery(output, 20))
             return 1;
         const std::wstring index =
             (output / "index.html").wstring();
@@ -245,6 +296,7 @@ int WINAPI wWinMain(
                 frequency.QuadPart));
         previous = current;
         if (running && !IsIconic(window)) {
+            UpdateController(window);
             Update(dt);
             UpdateAudio(dt);
             Render(window);

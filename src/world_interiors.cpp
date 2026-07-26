@@ -115,7 +115,14 @@ void BuildBossInteriorWorld(
     std::vector<int> turretRooms;
     const int turretCount = bossTuning.burstTurretsPerQuadrant +
         bossTuning.rocketTurretsPerQuadrant;
-    if (!BuildRoomBloomGraph(seed, turretCount, spawnRoom, turretRooms))
+    // One additional terminal produces a visibly broader graph without
+    // making generation fall back to a single-room failure case.
+    bool generated = false;
+    for (int attempt = 0; attempt < 256 && !generated; ++attempt)
+        generated = BuildRoomBloomGraph(
+            ConnectionSeed(seed, attempt, static_cast<int>(rooms.size())),
+            turretCount + 1, spawnRoom, turretRooms);
+    if (!generated)
         spawnRoom = quadrantRooms.empty() ? 0 : quadrantRooms.front();
     std::queue<int> pending;
     std::vector<int> distances(rooms.size(), -1);

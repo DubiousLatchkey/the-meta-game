@@ -16,10 +16,11 @@ namespace game {
 
 inline constexpr std::array<const char*, 4> kDebugEnemyTypes{{
     "circle", "triangle", "charger", "shooter"}};
-inline constexpr std::array<UpgradeType, 6> kDebugUpgrades{{
+inline constexpr std::array<UpgradeType, 8> kDebugUpgrades{{
     UpgradeType::MaxHealth, UpgradeType::MoveSpeed,
     UpgradeType::FireRate, UpgradeType::ProjectileDamage,
-    UpgradeType::BombCooldown, UpgradeType::Invincibility}};
+    UpgradeType::BombCooldown, UpgradeType::BombDamage,
+    UpgradeType::Invincibility, UpgradeType::ExtraProjectile}};
 // Frame/run-scoped state shared across the gameplay split.
 // Defined in gameplay.cpp.
 extern bool pendingLevelSelection;
@@ -27,6 +28,7 @@ extern ArenaLevel runArena;
 extern std::string legacyInteriorArchetype;
 extern int legacyInteriorRoomSize;
 extern bool debugRoom;
+extern bool postBossTuningRoom;
 extern std::array<bool, 4> debugSpawnerOn;
 extern std::array<float, 3> debugPickupTimers;
 

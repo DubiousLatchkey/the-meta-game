@@ -18,6 +18,40 @@
 
 namespace game {
 
+namespace {
+
+bool OrganAtMinimum(const TextBox& box) {
+    if (box.organ < 0 || box.organ >= static_cast<int>(organs.size()))
+        return false;
+    const std::string& id = organs[box.organ].id;
+    EnemyDifficultyStat stat;
+    if (id == "size") stat = EnemyDifficultyStat::Size;
+    else if (id == "speed") stat = EnemyDifficultyStat::Speed;
+    else if (id == "health") stat = EnemyDifficultyStat::Health;
+    else if (id == "burst") stat = EnemyDifficultyStat::Burst;
+    else if (id == "damage") stat = EnemyDifficultyStat::Damage;
+    else if (id == "spawner_health")
+        stat = EnemyDifficultyStat::SpawnerHealth;
+    else if (id == "spawn_speed")
+        stat = EnemyDifficultyStat::SpawnSpeed;
+    else if (id == "child_capacity")
+        stat = EnemyDifficultyStat::ChildCapacity;
+    else
+        return false;
+    return DifficultyStage(run, interior.archetype, stat) == 0;
+}
+
+bool EnemyIsSimulated(const Enemy& enemy) {
+    const Rect rect = EnemyRect(enemy);
+    return WithinSimulationRange(CenterX(rect), CenterY(rect));
+}
+
+bool SpawnerIsSimulated(const Spawner& spawner) {
+    return WithinSimulationRange(spawner.x + 15.0f, spawner.y + 15.0f);
+}
+
+}  // namespace
+
 void DrawRectangle(
     int x, int y, int width, int height, std::uint32_t color) {
     if (!buffer.pixels) return;
@@ -170,9 +204,17 @@ void DrawPlayer() {
             std::uint32_t color = CompositeColor(pixel);
             if (playerHealth <= 0)
                 color = ((color & 0x00FCFCFC) >> 2);
-            DrawWorldRect(
-                {originX + column * scale, originY + row * scale,
-                 scale, scale}, color);
+            const int left = static_cast<int>(std::lround(
+                originX + column * scale - CameraX()));
+            const int top = static_cast<int>(std::lround(
+                originY + row * scale - CameraY()));
+            const int right = static_cast<int>(std::lround(
+                originX + (column + 1) * scale - CameraX()));
+            const int bottom = static_cast<int>(std::lround(
+                originY + (row + 1) * scale - CameraY()));
+            DrawRectangle(
+                left, top, std::max(1, right - left),
+                std::max(1, bottom - top), color);
         }
 }
 
@@ -526,15 +568,18 @@ void DrawPortalEffect(const Rect& portal, const char* assetId) {
         }
     for (int index = 0; index < 12; ++index) {
         const float phase = std::fmod(
-            time * 0.38f + static_cast<float>(index) / 12.0f, 1.0f);
-        const float wobble = std::sin(
-            time * 3.0f + static_cast<float>(index) * 2.4f);
-        const float size = 2.0f + phase * 2.0f;
+            time * 0.55f + static_cast<float>(index) / 12.0f, 1.0f);
+        const float angle =
+            static_cast<float>(index) * (2.0f * kPi / 12.0f) +
+            time * 0.22f;
+        const float radius = (1.0f - phase) *
+            (std::max(portal.width, portal.height) * 0.85f + 26.0f);
+        const float size = 2.0f + (1.0f - phase) * 2.0f;
         DrawWorldRectAlpha(
-            {centerX + wobble * (8.0f + phase * 16.0f) - size * 0.5f,
-             portal.y + portal.height - phase * (portal.height + 32.0f),
+            {centerX + std::cos(angle) * radius - size * 0.5f,
+             centerY + std::sin(angle) * radius - size * 0.5f,
              size, size},
-            0x0000E8FF, 0.2f + phase * 0.65f);
+            0x0000E8FF, 0.25f + phase * 0.65f);
     }
 }
 
@@ -769,20 +814,23 @@ void Render(HWND window) {
     if (runInterior && runNode->type == RunNodeType::PlayerInterior &&
         (runNode->playerInteriorAlteration < 0 ||
          runNode->playerInteriorAlterationTimer > 0)) {
-        std::array<int, 9> order{{0,1,2,3,4,5,6,7,8}};
-        std::sort(order.begin(), order.end(), [&](int first, int second) {
-            if (rooms[first].distance != rooms[second].distance)
-                return rooms[first].distance < rooms[second].distance;
-            return DeriveRunSeed(runNode->seed, 0x504c41594552ULL, first) <
-                DeriveRunSeed(runNode->seed, 0x504c41594552ULL, second);
-        });
-        for (int slot = 0; slot < 8; ++slot) {
-            const int alteration = slot + 3;
+        static constexpr std::array<PlayerAlteration, 9> layout{{
+            PlayerAlteration::SecondMultishot,
+            PlayerAlteration::ExtraProjectileLimiter,
+            PlayerAlteration::DualPrimary,
+            PlayerAlteration::InfiniteHoming,
+            PlayerAlteration::Regeneration,
+            PlayerAlteration::InfiniteMultishot,
+            PlayerAlteration::DualSecondary,
+            PlayerAlteration::ExtraLife,
+            PlayerAlteration::InfiniteAutoRocket}};
+        for (int room = 0; room < static_cast<int>(layout.size()); ++room) {
+            const int alteration = static_cast<int>(layout[room]);
             const bool selected =
                 runNode->playerInteriorAlteration == alteration;
             if (runNode->playerInteriorAlteration >= 0 && !selected)
                 continue;
-            const Rect target = PlayerAlterationTarget(order[slot]);
+            const Rect target = PlayerAlterationTarget(room);
             const bool taken = playerInteriorState.permanent[alteration - 3];
             const float fade = !selected ? 1.0f : std::clamp(
                 runNode->playerInteriorAlterationTimer /
@@ -866,11 +914,12 @@ void Render(HWND window) {
     for (const TextBox& box : textBoxes)
         DrawWord(
             box.word, box.rect.x, box.rect.y,
-            0x00FFFFFF, true);
+            OrganAtMinimum(box) ? 0x00FF4040 : 0x00FFFFFF, true);
     if (runInterior)
         for (const RunPortal& portal : runNode->portals) {
             if (!portal.active) continue;
-            const Rect trigger = ExitPortalRect();
+            const Rect trigger = portal.interiorTrigger.width > 0
+                ? portal.interiorTrigger : ExitPortalRect();
             const RunNode* destination =
                 GetRunNode(run, portal.destination);
             const char* assetId = !destination ? "portal_arena" :
@@ -887,7 +936,7 @@ void Render(HWND window) {
             (void)destination;
         }
     for (const Spawner& spawner : spawners) {
-        if (spawner.health <= 0) continue;
+        if (spawner.health <= 0 || !SpawnerIsSimulated(spawner)) continue;
         std::uint32_t spawnerColor = 0x00A02050;
         if (spawner.enemyType == "triangle")
             spawnerColor = 0x004C72D8;
@@ -913,7 +962,7 @@ void Render(HWND window) {
             0x00FFFFFF);
     }
     for (const Enemy& enemy : enemies) {
-        if (enemy.type != "shooter" ||
+        if (!EnemyIsSimulated(enemy) || enemy.type != "shooter" ||
             enemy.phase != EnemyPhase::Windup)
             continue;
         const Rect source = EnemyRect(enemy);
@@ -935,9 +984,9 @@ void Render(HWND window) {
             rail.x, rail.y, rail.dx, rail.dy, rail.length, rail.width,
             0x00FFFFFF, false);
     for (const Enemy& enemy : enemies)
-        DrawChargerWindup(enemy);
+        if (EnemyIsSimulated(enemy)) DrawChargerWindup(enemy);
     for (const Enemy& enemy : enemies)
-        DrawEnemySprite(enemy);
+        if (EnemyIsSimulated(enemy)) DrawEnemySprite(enemy);
     DrawPlayer();
     for (const Projectile& projectile : projectiles)
         DrawProjectileVisual(projectile);
@@ -973,7 +1022,7 @@ void Render(HWND window) {
     }
 
     if (runMode) {
-        DrawRunHud();
+        if (!PostBossTuningRoomActive()) DrawRunHud();
         if (run.mapActive) {
             const std::string prompt = "CHOOSE NEXT PATH";
             DrawTextString(
@@ -984,9 +1033,11 @@ void Render(HWND window) {
         }
     } else {
     DrawRectangle(0, 0, buffer.width, 64, 0x00070B11);
-    const auto help = phrases.find("help");
-    if (help != phrases.end())
-        DrawPhrase(help->second, 16, 42, 0x00FFFFFF, false);
+    if (!MainMenuActive()) {
+        const auto help = phrases.find("help");
+        if (help != phrases.end())
+            DrawPhrase(help->second, 16, 42, 0x00FFFFFF, false);
+    }
     const auto health = phrases.find("hud_health");
     if (health != phrases.end())
         DrawPhrase(health->second, 16, 16, 0x00FFFFFF, false);

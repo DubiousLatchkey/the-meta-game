@@ -25,6 +25,7 @@ ArenaLevel runArena;
 std::string legacyInteriorArchetype;
 int legacyInteriorRoomSize = 0;
 bool debugRoom = false;
+bool postBossTuningRoom = false;
 std::array<bool, 4> debugSpawnerOn{{false, false, false, false}};
 std::array<float, 3> debugPickupTimers{{0, 0, 0}};
 
@@ -46,6 +47,15 @@ bool PlayerInteriorMode() {
     const RunNode* node = CurrentRunNode();
     return RunMode() && !run.mapActive && node &&
         node->type == RunNodeType::PlayerInterior;
+}
+
+static bool EnemyIsSimulated(const Enemy& enemy) {
+    const Rect rect = EnemyRect(enemy);
+    return WithinSimulationRange(CenterX(rect), CenterY(rect));
+}
+
+static bool SpawnerIsSimulated(const Spawner& spawner) {
+    return WithinSimulationRange(spawner.x + 15.0f, spawner.y + 15.0f);
 }
 
 bool DamagePlayer(int damage) {
@@ -84,14 +94,20 @@ void AwardSpawnerDeaths() {
 bool AcquireHomingTarget(float x, float y, float& targetX, float& targetY) {
     bool found = false;
     float best = std::numeric_limits<float>::max();
+    constexpr float kHomingRange = 520.0f;
+    constexpr float kHomingRangeSquared = kHomingRange * kHomingRange;
+    const int activeRoom = RunArenaMode() ? -1 : CurrentRoom();
     for (const Enemy& enemy : enemies) {
-        if (enemy.health <= 0) continue;
+        if (enemy.health <= 0 || !EnemyIsSimulated(enemy) ||
+            (activeRoom >= 0 && enemy.room != activeRoom))
+            continue;
         const Rect rect = EnemyRect(enemy);
         const float candidateX = CenterX(rect);
         const float candidateY = CenterY(rect);
         const float dx = candidateX - x;
         const float dy = candidateY - y;
         const float distance = dx * dx + dy * dy;
+        if (distance > kHomingRangeSquared) continue;
         if (distance < best) {
             best = distance;
             targetX = candidateX;
@@ -100,12 +116,15 @@ bool AcquireHomingTarget(float x, float y, float& targetX, float& targetY) {
         }
     }
     for (const Spawner& spawner : spawners) {
-        if (spawner.health <= 0) continue;
+        if (spawner.health <= 0 || !SpawnerIsSimulated(spawner) ||
+            (activeRoom >= 0 && spawner.room != activeRoom))
+            continue;
         const float candidateX = spawner.x + 15.0f;
         const float candidateY = spawner.y + 15.0f;
         const float dx = candidateX - x;
         const float dy = candidateY - y;
         const float distance = dx * dx + dy * dy;
+        if (distance > kHomingRangeSquared) continue;
         if (distance < best) {
             best = distance;
             targetX = candidateX;
@@ -167,50 +186,47 @@ Rect InteriorOrganExitTrigger(const RunNode& node, int roomIndex) {
         return {};
     const Room& room = rooms[roomIndex];
     constexpr float size = 72.0f;
-    const float margin = std::max(100.0f, interior.roomSize * 0.14f);
-    for (int attempt = 0; attempt < 32; ++attempt) {
-        const std::uint64_t seed = DeriveRunSeed(
-            node.seed, 0x4f5247414e455849ULL,
-            static_cast<std::uint64_t>(node.portals.size() * 32 + attempt));
-        const Rect candidate{
-            RoomX(room) + margin + static_cast<float>(
-                seed % static_cast<std::uint64_t>(
-                    std::max(1.0f, interior.roomSize - margin * 2 - size))),
-            RoomY(room) + margin + static_cast<float>(
-                (seed >> 24) % static_cast<std::uint64_t>(
-                    std::max(1.0f, interior.roomSize - margin * 2 - size))),
-            size, size};
-        bool overlaps = false;
-        for (const RunPortal& portal : node.portals)
-            overlaps = overlaps || Overlaps(candidate, portal.interiorTrigger);
-        for (const TextBox& box : textBoxes)
-            overlaps = overlaps || Overlaps(candidate, box.rect);
-        if (!overlaps) return candidate;
-    }
-    return {RoomX(room) + interior.roomSize * 0.5f - size * 0.5f,
-            RoomY(room) + interior.roomSize * 0.5f - size * 0.5f,
-            size, size};
+    const float margin = std::max(70.0f, interior.roomSize * 0.1f);
+    const std::array<Rect, 4> corners{{
+        {RoomX(room) + margin, RoomY(room) + margin, size, size},
+        {RoomX(room) + interior.roomSize - margin - size,
+         RoomY(room) + margin, size, size},
+        {RoomX(room) + interior.roomSize - margin - size,
+         RoomY(room) + interior.roomSize - margin - size, size, size},
+        {RoomX(room) + margin,
+         RoomY(room) + interior.roomSize - margin - size, size, size},
+    }};
+    return corners[node.portals.size() % corners.size()];
 }
 
 void UnlockInteriorPortals() {
     RunNode* node = CurrentRunNode();
     if (!node || node->type != RunNodeType::Interior)
         return;
-    node->completed = true;
     const int organRoom = CurrentRoom();
-    for (RunPortal& portal : node->portals) portal.active = true;
     if (organRoom >= 0 && !node->portals.empty()) {
-        RunPortal portal = node->portals.front();
-        portal.active = true;
-        portal.interiorTrigger = InteriorOrganExitTrigger(*node, organRoom);
-        node->portals.push_back(portal);
+        if (!node->completed) {
+            RunPortal& portal = node->portals.front();
+            portal.active = true;
+            portal.armed = false;
+            portal.interiorTrigger = InteriorOrganExitTrigger(*node, organRoom);
+        } else {
+            RunPortal portal = node->portals.front();
+            portal.destination = kInvalidRunNode;
+            portal.active = true;
+            portal.armed = false;
+            node->portals.push_back(portal);
+            node->portals.back().interiorTrigger =
+                InteriorOrganExitTrigger(*node, organRoom);
+        }
     }
+    node->completed = true;
     BuildInteriorArenaDestinations(*node);
     RebuildGameplayTextBoxes();
 }
 
 bool DamageTextBox(
-    TextBox& box, float impactX, bool* organEdited = nullptr) {
+    TextBox& box, float impactX, int* organEdits = nullptr) {
     if (box.levelValue) {
         levelNumber = std::max(0, levelNumber - 1);
         if (levelValueWord >= 0) {
@@ -229,7 +245,7 @@ bool DamageTextBox(
         if (stage == 0) return false;
         --stage;
         PlaySoundEffect(Sound::ValueLowered);
-        if (organEdited) *organEdited = true;
+        if (organEdits) ++*organEdits;
         organ.value = DisplayEnemyOrganValue(
             types.at(interior.archetype), stat, stage);
         UpdateValueWord(organ);
@@ -251,13 +267,14 @@ bool HitText(Projectile& projectile) {
         projectile.x, projectile.y, projectile.width, projectile.width};
     for (TextBox& box : textBoxes) {
         if (!Overlaps(shot, box.rect)) continue;
-        bool organEdited = false;
+        int organEdits = 0;
         const bool changedLevel =
-            DamageTextBox(box, CenterX(shot), &organEdited);
+            DamageTextBox(box, CenterX(shot), &organEdits);
         const bool startGame = MainMenuActive() && box.startGame;
         SaveMutations();
         if (startGame) TriggerMainMenuStart();
-        if (organEdited) UnlockInteriorPortals();
+        for (int edit = 0; edit < organEdits; ++edit)
+            UnlockInteriorPortals();
         if (changedLevel)
             pendingLevelSelection = true;
         else if (!MainMenuActive())
@@ -271,6 +288,9 @@ bool HitShield(const Rect& shot, int damage) {
     for (ShieldBlock& shield : shieldBlocks)
         if (shield.health > 0 && Overlaps(shot, shield.rect)) {
             RunNode* node = CurrentRunNode();
+            if (node && node->type == RunNodeType::PlayerInterior &&
+                !playerInteriorState.permanent[0] && shield.organ >= 0)
+                return true;
             if (node && node->type == RunNodeType::PlayerInterior &&
                 shield.organ >= 0 && node->playerInteriorRoom >= 0 &&
                 shield.organ != node->playerInteriorRoom)
@@ -292,7 +312,7 @@ bool HitShield(const Rect& shot, int damage) {
 
 bool HitSpawner(const Rect& shot, int damage) {
     for (Spawner& spawner : spawners)
-        if (spawner.health > 0 &&
+        if (spawner.health > 0 && SpawnerIsSimulated(spawner) &&
             Overlaps(shot, {spawner.x, spawner.y, 30, 30})) {
             spawner.health -= damage;
             PlaySoundEffect(
@@ -304,7 +324,8 @@ bool HitSpawner(const Rect& shot, int damage) {
 
 bool HitEnemy(const Rect& shot, int damage) {
     for (Enemy& enemy : enemies)
-        if (enemy.health > 0 && EnemyVisualOverlaps(enemy, shot)) {
+        if (enemy.health > 0 && EnemyIsSimulated(enemy) &&
+            EnemyVisualOverlaps(enemy, shot)) {
             enemy.health -= damage;
             PlaySoundEffect(Sound::HitEnemy);
             return true;
@@ -331,10 +352,20 @@ bool HitRoomWall(const Rect& shot) {
     return true;
 }
 
+bool HitMutableGeometry(const Rect& shot) {
+    if (currentMap == "audio" && HitAudioGeometry(shot)) return true;
+    if (currentMap == "glyph" && HitGlyphGeometry(shot)) {
+        SaveMutations();
+        return true;
+    }
+    return HitRoomWall(shot);
+}
+
 void DetonateBomb(float x, float y, int damage, float radius) {
     PlaySoundEffect(Sound::Explosion);
     for (Enemy& enemy : enemies) {
-        if (EnemyVisualWithinRadius(enemy, x, y, radius))
+        if (EnemyIsSimulated(enemy) &&
+            EnemyVisualWithinRadius(enemy, x, y, radius))
             enemy.health -= damage;
     }
     const float radiusSquared = radius * radius;
@@ -352,6 +383,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
         }
     }
     for (Spawner& spawner : spawners) {
+        if (!SpawnerIsSimulated(spawner)) continue;
         const Rect rect{spawner.x, spawner.y, 30, 30};
         const float dx = x - std::clamp(x, rect.x, rect.x + rect.width);
         const float dy = y - std::clamp(y, rect.y, rect.y + rect.height);
@@ -364,6 +396,9 @@ void DetonateBomb(float x, float y, int damage, float radius) {
     }
     for (ShieldBlock& shield : shieldBlocks) {
         RunNode* node = CurrentRunNode();
+        if (node && node->type == RunNodeType::PlayerInterior &&
+            !playerInteriorState.permanent[0] && shield.organ >= 0)
+            continue;
         if (node && node->type == RunNodeType::PlayerInterior &&
             shield.organ >= 0 && node->playerInteriorRoom >= 0 &&
             shield.organ != node->playerInteriorRoom)
@@ -387,7 +422,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
     }
     bool changedText = false;
     bool changedLevel = false;
-    bool organEdited = false;
+    int organEdits = 0;
     bool startGame = false;
     for (TextBox& text : textBoxes) {
         const float dx = x - std::clamp(
@@ -396,7 +431,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
             y, text.rect.y, text.rect.y + text.rect.height);
         if (dx * dx + dy * dy > radiusSquared) continue;
         changedLevel =
-            DamageTextBox(text, x, &organEdited) || changedLevel;
+            DamageTextBox(text, x, &organEdits) || changedLevel;
         startGame = startGame ||
             (MainMenuActive() && text.startGame);
         changedText = true;
@@ -404,26 +439,31 @@ void DetonateBomb(float x, float y, int damage, float radius) {
     if (changedText) {
         SaveMutations();
         if (startGame) TriggerMainMenuStart();
-        if (organEdited) UnlockInteriorPortals();
+        for (int edit = 0; edit < organEdits; ++edit)
+            UnlockInteriorPortals();
         if (changedLevel)
             pendingLevelSelection = true;
         else if (!MainMenuActive())
             RebuildGameplayTextBoxes();
     }
-    // Explosions use the same wall hit path as projectiles, sampling their
-    // blast disk so arena sprites/glyphs/audio pixels are all mutable.
+    // Probe the blast disk, but apply at most one mutable-geometry hit per
+    // explosion. This keeps a rocket's wall impact equivalent to one shot and
+    // performs only one persistence/cache update.
     const float spacing = std::max(6.0f, radius * 0.25f);
+    bool damagedGeometry = false;
     for (float offsetY = -radius; offsetY <= radius; offsetY += spacing)
-        for (float offsetX = -radius; offsetX <= radius; offsetX += spacing)
+        for (float offsetX = -radius;
+             offsetX <= radius && !damagedGeometry; offsetX += spacing)
             if (offsetX * offsetX + offsetY * offsetY <= radiusSquared)
-                HitRoomWall({x + offsetX - 1.0f, y + offsetY - 1.0f, 2, 2});
+                damagedGeometry = HitMutableGeometry(
+                    {x + offsetX - 1.0f, y + offsetY - 1.0f, 2, 2});
     explosions.push_back({x, y, kExplosionDuration});
 }
 
 bool BombObstacle(const Rect& bomb) {
     if (RunWall(bomb) || HitsWall(bomb) || HitsShield(bomb)) return true;
     for (const Spawner& spawner : spawners)
-        if (spawner.health > 0 &&
+        if (spawner.health > 0 && SpawnerIsSimulated(spawner) &&
             Overlaps(bomb, {spawner.x, spawner.y, 30, 30}))
             return true;
     for (const TextBox& text : textBoxes)
@@ -437,7 +477,10 @@ void SpawnBurst(Spawner& spawner) {
         spawner.enemyType, EnemyDifficultyStat::Burst));
     const int burstMin = type.burstMin + burstStage;
     const int burstMax = type.burstMax + burstStage;
-    spawner.maxActiveChildren = std::max(1, burstMax) * 3;
+    const int childCapacity = type.childCapacity + static_cast<int>(
+        EnemyStage(spawner.enemyType, EnemyDifficultyStat::ChildCapacity));
+    spawner.maxActiveChildren =
+        std::max(1, burstMax) * (std::max(1, childCapacity) + 1);
     const int activeChildren = static_cast<int>(std::count_if(
         enemies.begin(), enemies.end(),
         [&](const Enemy& enemy) {
@@ -768,6 +811,7 @@ void UpdateCharger(
 const ArenaLevel& ActiveRunArena() { return runArena; }
 
 bool DebugRoomActive() { return debugRoom; }
+bool PostBossTuningRoomActive() { return postBossTuningRoom; }
 
 Rect ExitPortalRect() { return PhysicalExitPortalRect(); }
 
@@ -808,6 +852,7 @@ void EmitProjectileWeapon(
             projectile.maxDistance = weapon.range;
             projectile.explosionRadius = weapon.radius;
             projectile.width = weapon.width;
+            projectile.activationDelay = duplicate * 0.045f;
             projectile.homingLateralOffset = offset * 180.0f;
             projectile.boomerang = weapon.boomerang;
             projectile.boomerangReleaseSpeed = weapon.speed;
@@ -831,6 +876,7 @@ void EmitBombWeapon(
                 std::sin(direction + offset) * weapon.speed, weapon.range,
                 weapon.homing, weapon.damage, weapon.radius};
             bomb.homingLateralOffset = offset * 180.0f;
+            bomb.activationDelay = duplicate * 0.045f;
             bomb.contact = weapon.contact;
             bombs.push_back(bomb);
         }
@@ -919,7 +965,6 @@ bool FirePlayerRail() {
             const Rect wallProbe{x - 1, y - 1, 2, 2};
             if (RunWall(wallProbe) ||
                 (!RunArenaMode() && HitsWall(wallProbe))) {
-                HitRoomWall(wallProbe);
                 break;
             }
             const Rect hitProbe{
@@ -1197,9 +1242,17 @@ bool UpdateMovementAndPortals(float dt) {
             PlaySoundEffect(Sound::Teleport);
             return true;
         }
-    } else if (RunMode() || debugRoom) {
+    } else if (RunMode() || debugRoom || postBossTuningRoom) {
         RunNode* node = CurrentRunNode();
-        if (debugRoom) {
+        if (postBossTuningRoom) {
+            if (Overlaps(
+                    {playerX, playerY, kPlayerSize, kPlayerSize},
+                    PhysicalExitPortalRect())) {
+                EnterMainMenu();
+                PlaySoundEffect(Sound::Teleport);
+                return true;
+            }
+        } else if (debugRoom) {
             if (Overlaps(
                     {playerX, playerY, kPlayerSize, kPlayerSize},
                     PhysicalExitPortalRect())) {
@@ -1219,6 +1272,11 @@ bool UpdateMovementAndPortals(float dt) {
                     continue;
                 }
                 if (touching) {
+                    if (portal.postBossTuning) {
+                        EnterPostBossTuningRoom();
+                        PlaySoundEffect(Sound::Teleport);
+                        return true;
+                    }
                     if (portal.destination != kInvalidRunNode) {
                         EnterRunNode(portal.destination);
                         PlaySoundEffect(Sound::Teleport);
@@ -1282,9 +1340,18 @@ void UpdateSpawners(float dt, int activeRoom) {
             spawner.timer -= dt;
             if (spawner.timer <= 0) {
                 SpawnBurst(spawner);
+                const EnemyType& type = types.at(spawner.enemyType);
+                const float spawnSpeedValue = std::max(
+                    1.0f, type.spawnSpeed +
+                        static_cast<float>(EnemyStage(
+                            spawner.enemyType,
+                            EnemyDifficultyStat::SpawnSpeed)));
+                const float spawnRate =
+                    1.0f + (spawnSpeedValue - 1.0f) * 0.1f;
                 ResetSpawnerTimer(
                     spawner, RandomFloat(
-                        interior.secondsMin, interior.secondsMax));
+                        interior.secondsMin, interior.secondsMax) *
+                        1.0f / spawnRate);
             }
         }
 }
@@ -1449,7 +1516,9 @@ void ResolveEnemyCrowding() {
             CenterY(rect) - height * 0.5f, width, height};
     };
     for (std::size_t index = 0; index < enemies.size(); ++index) {
-        if (enemies[index].health <= 0) continue;
+        if (enemies[index].health <= 0 ||
+            !EnemyIsSimulated(enemies[index]))
+            continue;
         const Rect rect = footprint(enemies[index]);
         const int firstX = static_cast<int>(std::floor(rect.x / cellSize));
         const int firstY = static_cast<int>(std::floor(rect.y / cellSize));
@@ -1556,6 +1625,11 @@ void UpdateEnemies(float dt, int activeRoom) {
 
 void UpdateProjectilesAndBombs(float dt) {
     for (Projectile& projectile : projectiles) {
+        if (projectile.activationDelay > 0) {
+            projectile.activationDelay =
+                std::max(0.0f, projectile.activationDelay - dt);
+            continue;
+        }
         if (projectile.boomerang) {
             const float speed = std::sqrt(
                 projectile.vx * projectile.vx + projectile.vy * projectile.vy);
@@ -1610,6 +1684,7 @@ void UpdateProjectilesAndBombs(float dt) {
                 projectile.width, projectile.width};
             for (std::size_t index = 0; index < enemies.size(); ++index)
                 if (enemies[index].health > 0 &&
+                    EnemyIsSimulated(enemies[index]) &&
                     std::find(
                         projectile.boomerangHitEnemies.begin(),
                         projectile.boomerangHitEnemies.end(),
@@ -1622,6 +1697,7 @@ void UpdateProjectilesAndBombs(float dt) {
                 }
             for (std::size_t index = 0; index < spawners.size(); ++index)
                 if (spawners[index].health > 0 &&
+                    SpawnerIsSimulated(spawners[index]) &&
                     std::find(
                         projectile.boomerangHitSpawners.begin(),
                         projectile.boomerangHitSpawners.end(),
@@ -1642,16 +1718,17 @@ void UpdateProjectilesAndBombs(float dt) {
                         static_cast<int>(index)) !=
                         projectile.boomerangHitTextBoxes.end())
                     continue;
-                bool organEdited = false;
+                int organEdits = 0;
                 const bool changedLevel = DamageTextBox(
-                    textBoxes[index], CenterX(shot), &organEdited);
+                    textBoxes[index], CenterX(shot), &organEdits);
                 const bool startGame =
                     MainMenuActive() && textBoxes[index].startGame;
                 projectile.boomerangHitTextBoxes.push_back(
                     static_cast<int>(index));
                 SaveMutations();
                 if (startGame) TriggerMainMenuStart();
-                if (organEdited) UnlockInteriorPortals();
+                for (int edit = 0; edit < organEdits; ++edit)
+                    UnlockInteriorPortals();
                 if (changedLevel)
                     pendingLevelSelection = true;
                 else if (!MainMenuActive())
@@ -1663,7 +1740,9 @@ void UpdateProjectilesAndBombs(float dt) {
                     HitSpecialControl(shot);
             if (!projectile.boomerangHitShop)
                 projectile.boomerangHitShop = HitShopOffer(shot);
-            HitRoomWall(shot);
+            if (HitMutableGeometry(shot) ||
+                RunWall(shot) || (!RunArenaMode() && HitsWall(shot)))
+                projectile.distance = -1;
             continue;
         }
         HomeProjectile(projectile);
@@ -1683,7 +1762,8 @@ void UpdateProjectilesAndBombs(float dt) {
                 projectile.x, projectile.y,
                 projectile.width, projectile.width};
             const bool hit = MainMenuActive()
-                ? (HitText(projectile) || HitRoomWall(shot))
+                ? (HitText(projectile) || RunWall(shot) ||
+                   (!RunArenaMode() && HitsWall(shot)))
                 : HitSpecialControl(shot) ||
                 HitShopOffer(shot) ||
                 HitBossTurretTarget(shot, projectile.damage) ||
@@ -1692,7 +1772,9 @@ void UpdateProjectilesAndBombs(float dt) {
                 HitText(projectile) ||
                 HitSpawner(shot, projectile.damage) ||
                 HitEnemy(shot, projectile.damage) ||
-                HitRoomWall(shot);
+                HitMutableGeometry(shot) ||
+                RunWall(shot) ||
+                (!RunArenaMode() && HitsWall(shot));
             if (hit) {
                 if (projectile.rocket)
                     DetonateBomb(
@@ -1713,6 +1795,11 @@ void UpdateProjectilesAndBombs(float dt) {
         projectiles.end());
 
     for (Bomb& bomb : bombs) {
+        if (bomb.activationDelay > 0) {
+            bomb.activationDelay = std::max(
+                0.0f, bomb.activationDelay - dt);
+            continue;
+        }
         HomeBomb(bomb);
         const float travel =
             std::min(
@@ -1736,7 +1823,7 @@ void UpdateProjectilesAndBombs(float dt) {
             const bool hitEnemy = bomb.contact && std::any_of(
                 enemies.begin(), enemies.end(),
                 [&](const Enemy& enemy) {
-                    return enemy.health > 0 &&
+                    return enemy.health > 0 && EnemyIsSimulated(enemy) &&
                         EnemyVisualOverlaps(enemy, nextBomb);
                 });
             if (bomb.contact && (hitX || hitY || hitEnemy)) {
@@ -1892,6 +1979,13 @@ void Update(float dt) {
     UpdateProjectilesAndBombs(dt);
     FinalizeFrame(activeRoom);
     if (playerHealth <= 0) {
+        if (run.extraLifeAvailable) {
+            run.extraLifeAvailable = false;
+            playerHealth = EffectivePlayerMaxHealth();
+            playerInvincibility = EffectiveInvincibilityDuration();
+            PlaySoundEffect(Sound::PowerUp);
+            return;
+        }
         EnterMainMenu();
         return;
     }

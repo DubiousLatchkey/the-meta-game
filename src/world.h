@@ -10,6 +10,8 @@ bool ReloadWorld(bool reset);
 bool LoadGoldenWorldForTools();
 bool GenerateInteriorGraphGallery(
     const std::filesystem::path& outputDirectory, int count);
+bool GenerateBossInteriorGraphGallery(
+    const std::filesystem::path& outputDirectory, int count);
 bool GenerateInteriorGraphTuner(
     const std::filesystem::path& outputFile);
 void SaveMutations();

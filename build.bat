@@ -28,7 +28,7 @@ if not defined SDK_VERSION (
 >> "%TOOLCHAIN_CACHE%" echo SDK_VERSION=%SDK_VERSION%
 
 set "MSVC=%MSVC_ROOT%\%MSVC_VERSION%"
-set "PATH=%MSVC%\bin\Hostx64\x64;%PATH%"
+set "PATH=%MSVC%\bin\Hostx64\x64;%SDK_ROOT%\bin\%SDK_VERSION%\x64;%PATH%"
 set "INCLUDE=%MSVC%\include;%SDK_ROOT%\Include\%SDK_VERSION%\ucrt;%SDK_ROOT%\Include\%SDK_VERSION%\shared;%SDK_ROOT%\Include\%SDK_VERSION%\um;%SDK_ROOT%\Include\%SDK_VERSION%\winrt;%SDK_ROOT%\Include\%SDK_VERSION%\cppwinrt"
 set "LIB=%MSVC%\lib\x64;%SDK_ROOT%\Lib\%SDK_VERSION%\ucrt\x64;%SDK_ROOT%\Lib\%SDK_VERSION%\um\x64"
 

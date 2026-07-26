@@ -55,6 +55,8 @@ struct EnemyType {
     int pixelScale = 7;
     int burstMin = 1;
     int burstMax = 1;
+    float spawnSpeed = 1.0f;
+    int childCapacity = 1;
     int spawnWeight = 0;
     float preferredDistance = 0;
     float attackRange = 0;
@@ -68,6 +70,10 @@ struct EnemyType {
 struct Word {
     std::string id;
     std::vector<std::uint8_t> bytes;
+};
+struct WorldConstant {
+    std::string label;
+    std::string value;
 };
 struct Organ {
     std::string id;
@@ -86,8 +92,8 @@ struct Interior {
     int seed = 7331;
     int spawnersMin = 1, spawnersMax = 4;
     int burstMin = 4, burstMax = 6;
-    int alternateBurstMin = 4, alternateBurstMax = 6;
-    float secondsMin = 3.0f, secondsMax = 6.0f;
+    int alternateBurstMin = 3, alternateBurstMax = 5;
+    float secondsMin = 5.0f, secondsMax = 8.0f;
     float speedUnit = 4.0f;
 };
 struct LevelRegion {
@@ -151,6 +157,7 @@ struct Projectile {
     float maxDistance = 1200.0f;
     float explosionRadius = 52.5f;
     float width = 5.0f;
+    float activationDelay = 0.0f;
     float homingLateralOffset = 0.0f;
     bool boomerang = false;
     bool returning = false;
@@ -199,6 +206,10 @@ struct BossFightState {
     bool active = false;
     float centerX = 0;
     float centerY = 0;
+    float orbitCenterX = 0;
+    float orbitCenterY = 0;
+    float orbitRadius = 0;
+    float orbitAngle = 0;
     float radiusX = 280.0f;
     float radiusY = 140.0f;
     int health = 80;
@@ -250,6 +261,7 @@ struct Bomb {
     int damage = 2;
     float radius = 52.5f;
     float homingLateralOffset = 0.0f;
+    float activationDelay = 0.0f;
     bool contact = false;
 };
 struct Explosion {
@@ -305,6 +317,8 @@ enum class EnemyDifficultyStat {
     Burst,
     Damage,
     SpawnerHealth,
+    SpawnSpeed,
+    ChildCapacity,
 };
 struct EnemyDifficultyStages {
     std::uint32_t size = 0;
@@ -313,6 +327,8 @@ struct EnemyDifficultyStages {
     std::uint32_t burst = 0;
     std::uint32_t damage = 0;
     std::uint32_t spawnerHealth = 0;
+    std::uint32_t spawnSpeed = 0;
+    std::uint32_t childCapacity = 0;
 };
 enum class PortalDirection {
     North,
@@ -334,6 +350,7 @@ enum class UpgradeType {
     FireRate,
     ProjectileDamage,
     BombCooldown,
+    BombDamage,
     Invincibility,
     ExtraProjectile,
 };
@@ -359,11 +376,12 @@ enum class PlayerAlteration {
     DualSecondary,
     ExtraProjectileLimiter,
     SecondMultishot,
+    ExtraLife,
     Count,
 };
 struct PlayerInteriorState {
     std::array<std::uint32_t, 3> repeatableRanks{};
-    std::array<bool, 8> permanent{};
+    std::array<bool, 9> permanent{};
     std::array<bool, 12> brokenDoorways{};
     std::array<int, 9> values{{5, 5, 100, 51, 3, 1, 1001, 1, 1}};
 };
@@ -385,7 +403,10 @@ struct RunPortal {
     float width = 0;
     bool active = false;
     bool armed = false;
+    bool postBossTuning = false;
     Rect interiorTrigger{};
+    int labelWord = -1;
+    int detailWord = -1;
 };
 struct RunPickup {
     PickupType type = PickupType::Currency;
@@ -465,6 +486,7 @@ struct RunData {
     float railAimX = 1;
     float railAimY = 0;
     float regenerationTimer = 0;
+    bool extraLifeAvailable = false;
     std::array<bool, 4> clearedBossQuadrants{};
     BossFightState boss;
 };
@@ -505,6 +527,7 @@ extern std::map<std::string, WeaponStats> playerWeapons;
 extern std::vector<Word> words;
 extern std::map<std::string, int> wordIds;
 extern std::map<std::string, std::vector<int>> phrases;
+extern std::vector<WorldConstant> worldConstants;
 extern std::vector<Organ> organs;
 extern Interior interior;
 extern PlayerInteriorState playerInteriorState;

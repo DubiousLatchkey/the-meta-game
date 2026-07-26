@@ -110,6 +110,7 @@ void UpdateDebugInteractions(float dt) {
 void EnterDebugRoom() {
     if (!RunMode()) return;
     debugRoom = true;
+    postBossTuningRoom = false;
     run.mapActive = false;
     currentMap = "interior";
     projectiles.clear();

@@ -9,6 +9,14 @@ Build with `build.bat`, then run `release/the-meta-game.exe`. The executable
 resolves `golden_scripts` and the writable `game` directory beside itself, so
 the whole `release` directory can be distributed as one unit.
 
+For a signed public release, first sign in with `az login`, then run
+`build-signed.bat`. It builds the game, selects the configured paid Azure
+subscription, signs and timestamps both executables with Microsoft Artifact
+Signing, verifies the signatures, and writes a clean signed ZIP under `dist`.
+The package deliberately excludes writable `release/game` player state and the
+standalone reset utility. Any later invocation of `build.bat` can replace the
+signed executables, so always finish release builds with `build-signed.bat`.
+
 The C++ host is split by behavior under `src/`: `app.cpp` owns Win32 startup,
 `world.cpp` owns Lua data, persistence, and room generation, `gameplay.cpp`
 owns simulation and combat, `roguelite.cpp` owns deterministic run graphs,

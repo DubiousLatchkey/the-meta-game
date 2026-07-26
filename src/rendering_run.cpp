@@ -198,6 +198,7 @@ void DrawRunArena() {
     if (MainMenuActive()) {
         for (const TextBox& box : textBoxes) {
             const float alpha = box.menuTitle ? MainMenuTitleAlpha() : 1.0f;
+            if (alpha <= 0.0f) continue;
             const int channel = std::clamp(
                 static_cast<int>(255.0f * alpha), 0, 255);
             DrawWord(
@@ -210,6 +211,46 @@ void DrawRunArena() {
             const Rect portal = MainMenuPortalRect();
             DrawPortalEffect(portal, "portal_arena");
         }
+        return;
+    }
+    if (PostBossTuningRoomActive()) {
+        constexpr std::size_t columns = 3;
+        constexpr float columnWidth = 780.0f;
+        constexpr float rowHeight = 30.0f;
+        constexpr float left = 70.0f;
+        constexpr float top = 105.0f;
+        const std::size_t rows =
+            (worldConstants.size() + columns - 1) / columns;
+        DrawTextString(
+            "WORLD LUA CONSTANTS",
+            static_cast<int>(left - CameraX()),
+            static_cast<int>(55.0f - CameraY()), 0x00FFFFFF);
+        for (std::size_t index = 0; index < worldConstants.size(); ++index) {
+            const std::size_t column = rows > 0 ? index / rows : 0;
+            const std::size_t row = rows > 0 ? index % rows : 0;
+            const WorldConstant& entry = worldConstants[index];
+            DrawTextString(
+                entry.label + "  " + entry.value,
+                static_cast<int>(
+                    left + static_cast<float>(column) * columnWidth -
+                    CameraX()),
+                static_cast<int>(
+                    top + static_cast<float>(row) * rowHeight -
+                    CameraY()),
+                0x00D8E4F0);
+        }
+        const Rect portal = ExitPortalRect();
+        DrawPortalEffect(portal, "portal_arena");
+        const std::string label = "TITLE SCREEN";
+        DrawTextString(
+            label,
+            static_cast<int>(
+                CenterX(portal) -
+                text_renderer::MeasureWidth(label.size()) * 0.5f -
+                CameraX()),
+            static_cast<int>(
+                portal.y - text_renderer::kGlyphHeight - 16 - CameraY()),
+            0x00FFFFFF);
         return;
     }
     for (const RunPortal& portal : node->portals) {
@@ -228,75 +269,6 @@ void DrawRunArena() {
             destination->type == RunNodeType::Boss ? "portal_boss" :
             "portal_arena";
         DrawPortalEffect({x, y, portalRect.width, portalRect.height}, assetId);
-        if (destination) {
-            std::string left = NodeTypeName(destination->type);
-            std::string right;
-            if (destination->type == RunNodeType::EnemyArena ||
-                destination->type == RunNodeType::Interior) {
-                left = destination->arenaArchetype;
-                std::transform(
-                    left.begin(), left.end(), left.begin(),
-                    [](unsigned char value) {
-                        return static_cast<char>(std::toupper(value));
-                    });
-                if (destination->type == RunNodeType::EnemyArena) {
-                    left += " ARENA";
-                    right = std::string("+ALL ENEMY ") +
-                        DifficultyStatName(destination->downside);
-                } else {
-                    left = "INSIDE " + left;
-                }
-            }
-            if (destination->type == RunNodeType::PlayerInterior)
-                left = "INSIDE PLAYER";
-            if (destination->type == RunNodeType::BossInterior)
-                left = "INSIDE BOSS";
-            const bool horizontal = portal.direction == PortalDirection::East ||
-                portal.direction == PortalDirection::West;
-            if (horizontal) {
-                DrawTextString(
-                    left,
-                    static_cast<int>(
-                        CenterX(portalRect) -
-                        text_renderer::MeasureWidth(left.size()) * 0.5f -
-                        CameraX()),
-                    static_cast<int>(
-                        portalRect.y - text_renderer::kGlyphHeight - 16 -
-                        CameraY()),
-                    0x00FFFFFF);
-            } else {
-                DrawTextString(
-                    left,
-                    static_cast<int>(
-                        portalRect.x - 18 -
-                        text_renderer::MeasureWidth(left.size()) - CameraX()),
-                    static_cast<int>(
-                        CenterY(portalRect) -
-                        text_renderer::kGlyphHeight * 0.5f - CameraY()),
-                    0x00FFFFFF);
-            }
-            if (!right.empty()) {
-                if (horizontal)
-                    DrawTextString(
-                        right,
-                        static_cast<int>(
-                            CenterX(portalRect) -
-                            text_renderer::MeasureWidth(right.size()) * 0.5f -
-                            CameraX()),
-                        static_cast<int>(
-                            portalRect.y + portalRect.height + 16 - CameraY()),
-                        0x00FFFFFF);
-                else
-                    DrawTextString(
-                        right,
-                        static_cast<int>(
-                            portalRect.x + portalRect.width + 18 - CameraX()),
-                        static_cast<int>(
-                            CenterY(portalRect) -
-                            text_renderer::kGlyphHeight * 0.5f - CameraY()),
-                        0x00FFFFFF);
-            }
-        }
     }
     if (DebugRoomActive()) {
         const Rect portalRect = ExitPortalRect();
@@ -420,10 +392,11 @@ void DrawRunArena() {
             0x00FFFFFF);
     }
     if (DebugRoomActive()) {
-        static constexpr std::array<UpgradeType, 6> upgrades{{
+        static constexpr std::array<UpgradeType, 8> upgrades{{
             UpgradeType::MaxHealth, UpgradeType::MoveSpeed,
             UpgradeType::FireRate, UpgradeType::ProjectileDamage,
-            UpgradeType::BombCooldown, UpgradeType::Invincibility}};
+            UpgradeType::BombCooldown, UpgradeType::BombDamage,
+            UpgradeType::Invincibility, UpgradeType::ExtraProjectile}};
         for (std::size_t index = 0; index < upgrades.size(); ++index) {
             const Rect target = DebugUpgradeTarget(index);
             DrawWorldRect(target, 0x00204460);
@@ -432,7 +405,8 @@ void DrawRunArena() {
                 static_cast<int>(target.x - CameraX()),
                 static_cast<int>(target.y - 30 - CameraY()), 0x00FFFFFF);
             DrawTextString(
-                "VALUE " + ShortNumber(UpgradeCurrentValue(upgrades[index])) +
+                "VALUE " + ShortNumber(
+                    UpgradeCurrentValue(upgrades[index])) +
                     "  STAND HERE TO BUY",
                 static_cast<int>(target.x - CameraX()),
                 static_cast<int>(target.y + 25 - CameraY()), 0x00FFFFFF);
@@ -575,7 +549,7 @@ void DrawInteriorMinimap(const RunNode& node) {
 void DrawRunHud() {
     const RunNode* current = CurrentRunNode();
     if (!current) return;
-    DrawRectangle(0, 0, buffer.width, 86, 0x00070B11);
+    DrawRectangle(0, 0, buffer.width, 98, 0x00070B11);
     const float regenerationProgress =
         playerInteriorState.permanent[0] &&
         playerHealth < EffectivePlayerMaxHealth()
@@ -628,6 +602,20 @@ void DrawRunHud() {
         depth,
         buffer.width - 12 - text_renderer::MeasureWidth(depth.size()),
         42, 0x00FFFFFF);
+    if (current->type == RunNodeType::EnemyArena &&
+        !current->waves.empty()) {
+        const std::uint32_t shownRound = std::min<std::uint32_t>(
+            current->activeWave + 1,
+            static_cast<std::uint32_t>(current->waves.size()));
+        const std::string round = "ROUND " +
+            std::to_string(shownRound) + " / " +
+            std::to_string(current->waves.size());
+        DrawTextString(
+            round,
+            buffer.width - 12 -
+                text_renderer::MeasureWidth(round.size()),
+            70, 0x00FFFFFF);
+    }
 
     std::vector<std::string> active;
     if (run.multishotRemaining > 0)
@@ -649,6 +637,13 @@ void DrawRunHud() {
             (buffer.width -
                 text_renderer::MeasureWidth(powerups.size())) / 2,
             10, 0x00FFFFFF);
+    if (run.extraLifeAvailable) {
+        const std::string extraLife = "EXTRA LIFE READY";
+        DrawTextString(
+            extraLife,
+            (buffer.width - text_renderer::MeasureWidth(extraLife.size())) / 2,
+            42, 0x00A0FFC0);
+    }
     if (current->type == RunNodeType::Boss &&
         run.status == RunStatus::Won)
         DrawTextString(

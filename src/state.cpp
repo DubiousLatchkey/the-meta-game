@@ -13,6 +13,7 @@ std::map<std::string, WeaponStats> playerWeapons;
 std::vector<Word> words;
 std::map<std::string, int> wordIds;
 std::map<std::string, std::vector<int>> phrases;
+std::vector<WorldConstant> worldConstants;
 std::vector<Organ> organs;
 Interior interior;
 PlayerInteriorState playerInteriorState;
