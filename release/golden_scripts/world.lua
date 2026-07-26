@@ -267,7 +267,7 @@ local player_weapons = {
     },
     boomerang = {
         cadence = 0.8, cadence_effect_scale = 2.0,
-        speed = 900, range = 700, spread = 0.14, deceleration_scale = 4.0,
+        speed = 900, range = 770, spread = 0.14, deceleration_scale = 4.0,
         width = 8, count = 1, projectiles_per_shot = 1,
         damage = 1, boomerang = true,
     },
@@ -279,7 +279,7 @@ local player_weapons = {
     },
     contact_bomb = {
         cadence = 3.0, cadence_effect_scale = 4.0,
-        speed = 360, range = 96, spread = 0.14,
+        speed = 540, range = 144, spread = 0.14,
         radius = 26.25, count = 1, projectiles_per_shot = 1,
         damage = 2, explosive = true, contact = true,
     },
@@ -473,8 +473,8 @@ return {
         burst_max = 3,
         alternate_burst_min = 3,
         alternate_burst_max = 5,
-        spawn_seconds_min = 7,
-        spawn_seconds_max = 10,
+        spawn_seconds_min = 6,
+        spawn_seconds_max = 9,
         speed_unit = 4,
         organs = {
             size = { label = text.size, value_text = { words.size_value }, value = 5, maximum = 5 },

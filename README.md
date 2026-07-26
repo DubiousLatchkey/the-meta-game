@@ -13,6 +13,8 @@ For a signed public release, first sign in with `az login`, then run
 `build-signed.bat`. It builds the game, selects the configured paid Azure
 subscription, signs and timestamps both executables with Microsoft Artifact
 Signing, verifies the signatures, and writes a clean signed ZIP under `dist`.
+Use `build-signed.bat -DebugCommands 0` for a public build that compiles out
+the O/P debug shortcuts.
 The package deliberately excludes writable `release/game` player state and the
 standalone reset utility. Any later invocation of `build.bat` can replace the
 signed executables, so always finish release builds with `build-signed.bat`.

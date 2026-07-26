@@ -6,3 +6,4 @@
 *.obj
 *.lib
 third_party/lua-*.tar.gz
+/screenshots/

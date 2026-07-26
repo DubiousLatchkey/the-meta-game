@@ -9,6 +9,8 @@
   link. Pass `DEBUG_COMMANDS=0` to `build.bat` to compile out the O/P debug
   shortcuts. Each configuration caches its own objects and linked game binary;
   the selected binary is copied to `release/the-meta-game.exe` on every build.
+  For signed releases, pass `-DebugCommands 0` to `build-signed.bat`; the
+  signing script forwards that selection into the build before signing.
 - Keep behavior separated under `src`: platform startup in `app`, shared data in
   `state`, Lua/world generation in the `world_*` units, simulation in
   `gameplay`/`gameplay_*`, and drawing in `rendering`/`rendering_*`. Preserve

@@ -1,3 +1,8 @@
+param(
+    [ValidateSet(0, 1)]
+    [int]$DebugCommands = 1
+)
+
 $ErrorActionPreference = "Stop"
 
 $workspace = Split-Path -Parent $PSScriptRoot
@@ -87,7 +92,7 @@ try {
     Assert-FileAvailable $gameExecutable
     Assert-FileAvailable $resetExecutable
 
-    & (Join-Path $workspace "build.bat")
+    & (Join-Path $workspace "build.bat") "DEBUG_COMMANDS=$DebugCommands"
     Assert-LastExitCode "Build"
 
     $azureCli = Find-AzureCli

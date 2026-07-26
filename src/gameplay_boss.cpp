@@ -48,6 +48,11 @@ const char* BossQuadrantName(BossQuadrant quadrant) {
 
 namespace {
 
+int BossDepthDamageBonus() {
+    const RunNode* node = CurrentRunNode();
+    return node ? std::max(0, -node->depth / 10) * 2 : 0;
+}
+
 float BossMountAngle(BossQuadrant quadrant, int index, int count) {
     const float base =
         quadrant == BossQuadrant::NorthWest ? -2.6f :
@@ -73,7 +78,7 @@ void FireBossBullet(BossTurret& turret, bool rocket) {
     shot.vy = std::sin(turret.aim) * speed;
     shot.rocket = rocket;
     shot.trackRemaining = rocket ? bossTuning.rocketTrackSeconds : 0;
-    shot.damage = rocket ? 2 : 1;
+    shot.damage = (rocket ? 2 : 1) + BossDepthDamageBonus();
     run.boss.projectiles.push_back(shot);
 }
 
@@ -245,7 +250,8 @@ void UpdateBossFight(float dt) {
         std::max(0.0f, run.boss.contactCooldown - dt);
     const Rect player{playerX, playerY, kPlayerSize, kPlayerSize};
     if (run.boss.contactCooldown <= 0 && RectHitsBoss(player)) {
-        DamagePlayer(bossTuning.contactDamage);
+        DamagePlayer(
+            bossTuning.contactDamage + BossDepthDamageBonus());
         run.boss.contactCooldown = 0.75f;
     }
     for (BossTurret& turret : run.boss.turrets) {
@@ -329,8 +335,10 @@ void InitializeBossFight(RunNode& node) {
     run.boss.centerY = run.boss.orbitCenterY - run.boss.orbitRadius;
     run.boss.radiusX = bossTuning.radiusX;
     run.boss.radiusY = bossTuning.radiusY;
-    run.boss.maxHealth = bossTuning.health;
-    run.boss.health = bossTuning.health;
+    const int negativeDecades = std::max(0, -node.depth / 10);
+    run.boss.maxHealth =
+        bossTuning.health + negativeDecades * 180;
+    run.boss.health = run.boss.maxHealth;
     BuildBossTurrets(node.seed, false, BossQuadrant::NorthWest, false);
     playerX = runArena.bounds.x + runArena.bounds.width * 0.5f -
         kPlayerSize * 0.5f;

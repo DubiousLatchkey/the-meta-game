@@ -129,7 +129,7 @@ bool HitSpecialControl(const Rect& shot) {
 void AwardSpawnerDeaths() {
     const RunNode* node = CurrentRunNode();
     const bool awardsCurrency =
-        !node || node->type != RunNodeType::PlayerInterior;
+        node && node->type == RunNodeType::EnemyArena;
     for (Spawner& spawner : spawners)
         if (spawner.health <= 0 && !spawner.rewardClaimed) {
             spawner.rewardClaimed = true;
@@ -189,6 +189,34 @@ bool AcquireHomingTarget(float x, float y, float& targetX, float& targetY) {
             found = true;
         }
     }
+    if (BossFightMode() && run.boss.health > 0) {
+        const float dx = run.boss.centerX - x;
+        const float dy = run.boss.centerY - y;
+        const float distance = dx * dx + dy * dy;
+        if (distance <= kHomingRangeSquared && distance < best) {
+            best = distance;
+            targetX = run.boss.centerX;
+            targetY = run.boss.centerY;
+            found = true;
+        }
+    }
+    if (BossInteriorMode())
+        for (const BossTurret& turret : run.boss.turrets) {
+            if (!turret.alive ||
+                (activeRoom >= 0 && turret.targetRoom != activeRoom))
+                continue;
+            const Rect target = BossTurretTargetRect(turret);
+            const float candidateX = CenterX(target);
+            const float candidateY = CenterY(target);
+            const float dx = candidateX - x;
+            const float dy = candidateY - y;
+            const float distance = dx * dx + dy * dy;
+            if (distance > kHomingRangeSquared || distance >= best) continue;
+            best = distance;
+            targetX = candidateX;
+            targetY = candidateY;
+            found = true;
+        }
     return found;
 }
 
@@ -420,6 +448,27 @@ bool HitEnemy(const Rect& shot, int damage) {
         }
     }
     return false;
+}
+
+bool ExplosiveProjectileImpact(const Rect& shot) {
+    if (BossFightMode() && RectHitsBoss(shot)) return true;
+    for (const BossTurret& turret : run.boss.turrets)
+        if (turret.alive && Overlaps(shot, BossTurretTargetRect(turret)))
+            return true;
+    for (std::size_t index : EnemyCandidates(shot))
+        if (index < enemies.size() && enemies[index].health > 0 &&
+            EnemyVisualOverlaps(enemies[index], shot))
+            return true;
+    for (const Spawner& spawner : spawners)
+        if (spawner.health > 0 &&
+            Overlaps(shot, {spawner.x, spawner.y, 30, 30}))
+            return true;
+    for (const ShieldBlock& shield : shieldBlocks)
+        if (shield.health > 0 && Overlaps(shot, shield.rect))
+            return true;
+    for (const TextBox& text : textBoxes)
+        if (Overlaps(shot, text.rect)) return true;
+    return RunWall(shot) || (!RunArenaMode() && HitsWall(shot));
 }
 
 bool HitRoomWall(const Rect& shot) {
@@ -1804,6 +1853,7 @@ void UpdateProjectilesAndBombs(float dt) {
                         projectile.boomerangHitEnemies.end() &&
                     EnemyVisualOverlaps(enemies[index], shot)) {
                     enemies[index].health -= projectile.damage;
+                    PlaySoundEffect(Sound::HitEnemy);
                     projectile.boomerangHitEnemies.push_back(
                         static_cast<int>(index));
                 }
@@ -1893,6 +1943,9 @@ void UpdateProjectilesAndBombs(float dt) {
             const bool hit = MainMenuActive()
                 ? (HitText(projectile) || RunWall(shot) ||
                    (!RunArenaMode() && HitsWall(shot)))
+                : projectile.rocket
+                ? (HitSpecialControl(shot) ||
+                   ExplosiveProjectileImpact(shot))
                 : HitSpecialControl(shot) ||
                 HitShopOffer(shot) ||
                 HitBossTurretTarget(shot, projectile.damage) ||

@@ -80,29 +80,41 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
     WeaponStats result;
     const auto found = playerWeapons.find(id);
     if (found != playerWeapons.end()) result = found->second;
+    if (id == "auto_rocket" && playerInteriorState.permanent[3])
+        result.cadence = std::max(
+            0.05f, playerInteriorState.values[6] / 1000.0f);
+    const bool bombRateWeapon =
+        id == "bomb" || id == "contact_bomb" || id == "homing_rocket";
+    const bool primaryRateWeapon =
+        id == "standard" || id == "railgun" || id == "boomerang";
     const std::uint32_t fireRanks =
         UpgradeRank(UpgradeType::FireRate);
     // Rail charge speed scales at half the rate of projectile fire speed:
     // two railgun ranks produce the same multiplier as one projectile rank.
     const float fireRateRanks = static_cast<float>(fireRanks) *
         (id == "railgun" ? 0.5f : 1.0f);
-    result.cadence = std::max(
-        0.05f, result.cadence /
-            std::pow(1.1f, fireRateRanks));
-    if (id == "bomb" || id == "contact_bomb" || id == "homing_rocket")
+    if (primaryRateWeapon)
         result.cadence = std::max(
-            0.05f, result.cadence -
-                0.2f * result.cadenceEffectScale *
-                    UpgradeRank(UpgradeType::BombCooldown));
-    result.damage += static_cast<int>(
-        UpgradeRank(UpgradeType::ProjectileDamage));
-    if (id == "bomb" || id == "contact_bomb" || id == "homing_rocket")
-        result.damage += static_cast<int>(UpgradeRank(UpgradeType::BombDamage));
+            0.05f, result.cadence /
+                std::pow(1.1f, fireRateRanks));
+    if (bombRateWeapon)
+        result.cadence = std::max(
+            0.05f, result.cadence /
+                std::pow(
+                    1.1f, static_cast<float>(
+                        UpgradeRank(UpgradeType::BombCooldown))));
+    if (primaryRateWeapon)
+        result.damage += static_cast<int>(
+            UpgradeRank(UpgradeType::ProjectileDamage) / 2);
+    if (id == "bomb" || id == "contact_bomb" ||
+        id == "homing_rocket" || id == "auto_rocket")
+        result.damage += static_cast<int>(
+            UpgradeRank(UpgradeType::BombDamage) / 2);
     result.projectilesPerShot +=
         playerInteriorState.permanent[6] ? 1 : 0;
     if (run.multishotRemaining > 0)
         result.count += 2;
-    if (playerInteriorState.permanent[1])
+    if (playerInteriorState.permanent[1] && primaryRateWeapon)
         result.count += std::max(1, 3 - playerInteriorState.values[4]);
     if (playerInteriorState.permanent[7])
         ++result.count;
@@ -110,9 +122,6 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
         (playerInteriorState.permanent[2] &&
          playerInteriorState.values[5] == 0))
         result.homing = true;
-    if (id == "auto_rocket" && playerInteriorState.permanent[3])
-        result.cadence = std::max(
-            0.05f, playerInteriorState.values[6] / 1000.0f);
     return result;
 }
 
@@ -213,9 +222,12 @@ void BuildPostBossPortals(RunNode& node) {
     RunNode& source = run.nodes[sourceId];
 
     constexpr float size = 72.0f;
-    constexpr float gap = 22.0f;
-    const float left = run.boss.centerX - size - gap * 0.5f;
-    const float top = run.boss.centerY - size * 0.5f;
+    const float left = runArena.bounds.x +
+        runArena.bounds.width * 0.25f - size * 0.5f;
+    const float right = runArena.bounds.x +
+        runArena.bounds.width * 0.75f - size * 0.5f;
+    const float top = runArena.bounds.y +
+        runArena.bounds.height * 0.5f - size * 0.5f;
 
     RunPortal tuning;
     tuning.active = true;
@@ -229,7 +241,7 @@ void BuildPostBossPortals(RunNode& node) {
     onward.active = true;
     onward.continueRun = true;
     onward.direction = PortalDirection::East;
-    onward.interiorTrigger = {left + size + gap, top, size, size};
+    onward.interiorTrigger = {right, top, size, size};
     source.portals.push_back(onward);
 }
 
@@ -1245,8 +1257,8 @@ float UpgradeCurrentValue(UpgradeType type) {
     if (type == UpgradeType::BombCooldown)
         return EffectiveBombCooldown();
     if (type == UpgradeType::MoveSpeed)
-        return 100.0f /
-            (kPlayerSpeed + 12.0f * UpgradeRank(UpgradeType::MoveSpeed));
+        return kPlayerSpeed +
+            12.0f * UpgradeRank(UpgradeType::MoveSpeed);
     if (type == UpgradeType::Invincibility)
         return EffectiveInvincibilityDuration();
     return static_cast<float>(UpgradeRank(type));
