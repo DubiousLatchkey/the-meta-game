@@ -382,13 +382,33 @@ void DrawRunArena() {
         }
         const Rect reset = ResetWordsTarget();
         DrawWorldRect(reset, 0x00204460);
+        const Rect purchase = ResetWordsPurchaseArea();
+        DrawWorldRect(purchase, 0x00502070);
         const std::string label = "RESET WORDS";
         DrawTextString(
             label,
+            static_cast<int>(reset.x - CameraX()),
+            static_cast<int>(reset.y - 66 - CameraY()), 0x00FFFFFF);
+        DrawTextString(
+            "COST 3 COINS", static_cast<int>(reset.x - CameraX()),
+            static_cast<int>(reset.y - 40 - CameraY()), 0x00FFFFFF);
+        DrawTextString(
+            "RESTORE BASELINE",
             static_cast<int>(CenterX(reset) -
-                text_renderer::MeasureWidth(label.size()) * 0.5f - CameraX()),
-            static_cast<int>(CenterY(reset) -
-                text_renderer::kGlyphHeight * 0.5f - CameraY()),
+                text_renderer::MeasureWidth(16) * 0.5f - CameraX()),
+            static_cast<int>(reset.y + 22 - CameraY()), 0x00FFFFFF);
+        DrawTextString(
+            "STAND HERE",
+            static_cast<int>(CenterX(purchase) -
+                text_renderer::MeasureWidth(10) * 0.5f - CameraX()),
+            static_cast<int>(purchase.y + 20 - CameraY()), 0x00FFFFFF);
+        const float progress = std::clamp(
+            node->resetWordsPurchaseTimer /
+                std::max(0.01f, rogueliteTuning.shopPurchaseSeconds),
+            0.0f, 1.0f);
+        DrawWorldRect(
+            {purchase.x + 12, purchase.y + 52,
+             (purchase.width - 24) * progress, 12},
             0x00FFFFFF);
     }
     if (DebugRoomActive()) {
@@ -593,7 +613,7 @@ void DrawRunHud() {
 
     const std::string coins = "COINS " + std::to_string(run.currency);
     const std::string depth =
-        "LEVEL " + std::to_string(current->depth);
+        "DEPTH LEVEL " + std::to_string(current->depth);
     DrawTextString(
         coins,
         buffer.width - 12 - text_renderer::MeasureWidth(coins.size()),

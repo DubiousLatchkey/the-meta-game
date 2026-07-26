@@ -40,6 +40,7 @@ Rect BossTurretTargetRect(const BossTurret& turret);
 bool BossFightMode();
 bool BossInteriorMode();
 Rect ResetWordsTarget();
+Rect ResetWordsPurchaseArea();
 Rect DebugUpgradeTarget(std::size_t index);
 Rect DebugLimiterTarget(std::size_t index);
 Rect DebugWeaponTarget(std::size_t index);

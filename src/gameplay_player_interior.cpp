@@ -28,7 +28,6 @@ Rect PlayerAlterationNumberTarget(int room) {
 }
 
 void SealPlayerInteriorRoom(int room) {
-    shieldBlocks.clear();
     const Room& value = rooms[room];
     const float x = RoomX(value), y = RoomY(value);
     const float edge = (interior.roomSize - kExitWidth) * 0.5f;

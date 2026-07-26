@@ -474,21 +474,21 @@ void AppendPortalTextBoxes() {
     const auto detailWordId = [](EnemyDifficultyStat stat) {
         switch (stat) {
             case EnemyDifficultyStat::Size:
-                return "portal_all_enemy_size";
+                return "portal_size_up";
             case EnemyDifficultyStat::Speed:
-                return "portal_all_enemy_speed";
+                return "portal_speed_up";
             case EnemyDifficultyStat::Health:
-                return "portal_all_enemy_health";
+                return "portal_health_up";
             case EnemyDifficultyStat::Burst:
-                return "portal_all_enemy_burst";
+                return "portal_spawn_herd_size_up";
             case EnemyDifficultyStat::Damage:
-                return "portal_all_enemy_damage";
+                return "portal_damage_up";
             case EnemyDifficultyStat::SpawnerHealth:
-                return "portal_all_enemy_spawner_health";
+                return "portal_spawner_health_up";
             case EnemyDifficultyStat::SpawnSpeed:
-                return "portal_all_enemy_spawn_speed";
+                return "portal_spawn_speed_up";
             case EnemyDifficultyStat::ChildCapacity:
-                return "portal_all_enemy_child_capacity";
+                return "portal_child_capacity_up";
         }
         return "";
     };
@@ -526,9 +526,10 @@ void AppendPortalTextBoxes() {
         const bool hasDetail =
             destination->type == RunNodeType::EnemyArena;
         if (hasDetail) {
+            portal.detailWord = coreWord("portal_all_enemy");
             const int detailWord =
                 coreWord(detailWordId(destination->downside));
-            if (detailWord >= 0) portal.detailWord = detailWord;
+            if (detailWord >= 0) portal.detailWord2 = detailWord;
         }
         const Rect portalRect = portal.interiorTrigger.width > 0
             ? portal.interiorTrigger : PhysicalExitPortalRect();
@@ -553,16 +554,34 @@ void AppendPortalTextBoxes() {
             ? static_cast<float>(text_renderer::MeasureWidth(
                   words[portal.detailWord].bytes.size()))
             : 0.0f;
+        const float secondWidth = portal.detailWord2 >= 0
+            ? static_cast<float>(text_renderer::MeasureWidth(
+                  words[portal.detailWord2].bytes.size()))
+            : 0.0f;
         if (horizontal)
-            addTarget(portal.detailWord,
-                {CenterX(portalRect) - rightWidth * 0.5f,
+            {
+            addTarget(portal.detailWord, {
+                CenterX(portalRect) - rightWidth * 0.5f,
                 portalRect.y + portalRect.height + 16, rightWidth,
                 static_cast<float>(text_renderer::kGlyphHeight)});
+            addTarget(portal.detailWord2, {
+                CenterX(portalRect) - secondWidth * 0.5f,
+                portalRect.y + portalRect.height + 16 +
+                    text_renderer::kGlyphHeight + 6,
+                secondWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+            }
         else
-            addTarget(portal.detailWord,
-                {portalRect.x + portalRect.width + 18,
-                CenterY(portalRect) - text_renderer::kGlyphHeight * 0.5f,
+            {
+            const float top = CenterY(portalRect) -
+                text_renderer::kGlyphHeight - 3;
+            addTarget(portal.detailWord, {
+                portalRect.x + portalRect.width + 18, top,
                 rightWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+            addTarget(portal.detailWord2, {
+                portalRect.x + portalRect.width + 18,
+                top + text_renderer::kGlyphHeight + 6,
+                secondWidth, static_cast<float>(text_renderer::kGlyphHeight)});
+            }
     }
 }
 
@@ -669,6 +688,7 @@ void ConfigureNode(RunNode& node) {
         node.playerInteriorAlteration = -1;
         node.playerInteriorAlterationRoom = -1;
         node.playerInteriorAlterationTimer = 0;
+        node.playerInteriorDoorway = -1;
         node.playerInteriorRoom = -1;
         node.playerInteriorWave = false;
     } else if (node.type == RunNodeType::BossInterior) {
@@ -924,6 +944,23 @@ void UpdateShopPurchases(float dt) {
         offer.purchaseTimer = 0;
         PlaySoundEffect(Sound::PowerUp);
     }
+    constexpr std::uint32_t resetPrice = 3;
+    if (run.currency < resetPrice ||
+        !Overlaps(player, ResetWordsPurchaseArea())) {
+        node->resetWordsPurchaseTimer = 0;
+    } else {
+        if (node->resetWordsPurchaseTimer <= 0)
+            PlaySoundEffect(Sound::AimTick);
+        node->resetWordsPurchaseTimer += dt;
+        if (node->resetWordsPurchaseTimer >=
+            rogueliteTuning.shopPurchaseSeconds) {
+            run.currency -= resetPrice;
+            ResetWordMutations();
+            RebuildGameplayTextBoxes();
+            node->resetWordsPurchaseTimer = 0;
+            PlaySoundEffect(Sound::PowerUp);
+        }
+    }
 }
 
 Rect PortalLabelRect() {
@@ -939,6 +976,11 @@ Rect PortalLabelRect() {
 Rect ResetWordsTarget() {
     return {kRunArenaWidth * 0.5f - 130.0f,
             kRunArenaHeight * 0.5f + 210.0f, 260, 70};
+}
+
+Rect ResetWordsPurchaseArea() {
+    const Rect target = ResetWordsTarget();
+    return {target.x + target.width + 20.0f, target.y, 120.0f, target.height};
 }
 
 Rect ShopOfferTarget(std::size_t index) {

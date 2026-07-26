@@ -77,6 +77,8 @@ bool BuildBloomGraph(
     std::vector<bool> visited(rooms.size(), false);
     visited[spawn] = true;
     std::vector<BloomFrontier> pending{{spawn, 0, {}}};
+    int branchOrgans = 0;
+    const int maximumBranchOrgans = organCount / 2;
     int decision = 0;
     while (!pending.empty() &&
            static_cast<int>(organRooms.size()) < organCount) {
@@ -120,10 +122,13 @@ bool BuildBloomGraph(
         // Forks are organ-eligible so players can claim a reward without
         // walking every leaf. Dead ends remain eligible below.
         if (branch &&
+            branchOrgans < maximumBranchOrgans &&
             static_cast<int>(
                 ConnectionSeed(seed, path.room, decision++) % 100) <
-                kBranchOrganChance)
+                kBranchOrganChance) {
             organRooms.push_back(path.room);
+            ++branchOrgans;
+        }
         for (int next : opened) {
             visited[next] = true;
             const auto edge = RoomEdge(path.room, next);
@@ -218,6 +223,11 @@ bool BuildBacktrackingBloomGraph(
                         branch.edges.insert(edge);
                         branch.pending.push_back({next, 1, {edge}});
                     }
+                    // Up to half of the organs may live at traversable forks;
+                    // the rest must terminate branches.
+                    if (static_cast<int>(branch.targets.size()) <
+                        organCount / 2)
+                        branch.targets.push_back(path.room);
                     if (search(branch)) {
                         state = std::move(branch);
                         return true;

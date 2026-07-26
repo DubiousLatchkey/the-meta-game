@@ -21,11 +21,11 @@ inline constexpr int kPlayerSize = 3;
 inline constexpr int kPlayerRenderSize = 14;
 inline constexpr int kPlayerMaxHealth = 3;
 inline constexpr int kProjectileSize = 5;
-inline constexpr float kPlayerSpeed = 260.0f;
+inline constexpr float kPlayerSpeed = 275.0f;
 inline constexpr int kWallChannelDamage = 5;
 inline constexpr float kBombRadius = 52.5f;
 inline constexpr float kExplosionDuration = 0.22f;
-inline constexpr float kEnemyFadeDuration = 0.125f;
+inline constexpr float kEnemyFadeDuration = 0.5f;
 inline constexpr float kRailFlashDuration = 0.12f;
 inline constexpr float kSimulationScreens = 5.0f;
 inline constexpr int kAudioSampleDamage = 5;
@@ -405,8 +405,10 @@ struct RunPortal {
     bool armed = false;
     bool postBossTuning = false;
     Rect interiorTrigger{};
+    int sourceRoom = -1;
     int labelWord = -1;
     int detailWord = -1;
+    int detailWord2 = -1;
 };
 struct RunPickup {
     PickupType type = PickupType::Currency;
@@ -440,6 +442,7 @@ struct RunNode {
     std::vector<RunPickup> pickups;
     std::vector<ShopOffer> shopOffers;
     RunNodeId shopReturnDestination = kInvalidRunNode;
+    float resetWordsPurchaseTimer = 0;
     bool entered = false;
     bool completed = false;
     std::uint32_t activeWave = 0;
@@ -453,6 +456,7 @@ struct RunNode {
     int playerInteriorAlteration = -1;
     int playerInteriorAlterationRoom = -1;
     float playerInteriorAlterationTimer = 0;
+    int playerInteriorDoorway = -1;
     int playerInteriorRoom = -1;
     bool playerInteriorWave = false;
     BossQuadrant bossQuadrant = BossQuadrant::NorthWest;

@@ -50,7 +50,97 @@ bool SpawnerIsSimulated(const Spawner& spawner) {
     return WithinSimulationRange(spawner.x + 15.0f, spawner.y + 15.0f);
 }
 
+struct PresentationRect {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+PresentationRect BackBufferPresentationRect(HWND window) {
+    RECT client{};
+    GetClientRect(window, &client);
+    const int clientWidth = std::max(0L, client.right - client.left);
+    const int clientHeight = std::max(0L, client.bottom - client.top);
+    if (clientWidth <= 0 || clientHeight <= 0 ||
+        buffer.width <= 0 || buffer.height <= 0)
+        return {};
+    const float scale = std::min(
+        static_cast<float>(clientWidth) / buffer.width,
+        static_cast<float>(clientHeight) / buffer.height);
+    const int width = std::max(
+        1, static_cast<int>(std::lround(buffer.width * scale)));
+    const int height = std::max(
+        1, static_cast<int>(std::lround(buffer.height * scale)));
+    return {
+        (clientWidth - width) / 2,
+        (clientHeight - height) / 2,
+        width,
+        height};
+}
+
+void PresentBackBuffer(HWND window) {
+    const PresentationRect destination =
+        BackBufferPresentationRect(window);
+    if (destination.width <= 0 || destination.height <= 0) return;
+    HDC target = GetDC(window);
+    if (!target) return;
+    RECT client{};
+    GetClientRect(window, &client);
+    const int clientWidth = client.right - client.left;
+    const int clientHeight = client.bottom - client.top;
+    const int destinationRight =
+        destination.x + destination.width;
+    const int destinationBottom =
+        destination.y + destination.height;
+    if (destination.y > 0)
+        PatBlt(
+            target, 0, 0, clientWidth, destination.y, BLACKNESS);
+    if (destinationBottom < clientHeight)
+        PatBlt(
+            target, 0, destinationBottom, clientWidth,
+            clientHeight - destinationBottom, BLACKNESS);
+    if (destination.x > 0)
+        PatBlt(
+            target, 0, destination.y, destination.x,
+            destination.height, BLACKNESS);
+    if (destinationRight < clientWidth)
+        PatBlt(
+            target, destinationRight, destination.y,
+            clientWidth - destinationRight,
+            destination.height, BLACKNESS);
+    SetStretchBltMode(target, COLORONCOLOR);
+    StretchBlt(
+        target,
+        destination.x, destination.y,
+        destination.width, destination.height,
+        buffer.dc, 0, 0, buffer.width, buffer.height,
+        SRCCOPY);
+    ReleaseDC(window, target);
+}
+
 }  // namespace
+
+void ClientToGameCoordinates(
+    HWND window, int clientX, int clientY, int& gameX, int& gameY) {
+    const PresentationRect destination =
+        BackBufferPresentationRect(window);
+    if (destination.width <= 0 || destination.height <= 0) {
+        gameX = buffer.width / 2;
+        gameY = buffer.height / 2;
+        return;
+    }
+    const float normalizedX =
+        static_cast<float>(clientX - destination.x) / destination.width;
+    const float normalizedY =
+        static_cast<float>(clientY - destination.y) / destination.height;
+    gameX = std::clamp(
+        static_cast<int>(std::floor(normalizedX * buffer.width)),
+        0, std::max(0, buffer.width - 1));
+    gameY = std::clamp(
+        static_cast<int>(std::floor(normalizedY * buffer.height)),
+        0, std::max(0, buffer.height - 1));
+}
 
 void DrawRectangle(
     int x, int y, int width, int height, std::uint32_t color) {
@@ -598,9 +688,7 @@ bool InitializeBackBuffer(HWND window) {
     buffer.dc = CreateCompatibleDC(target);
     ReleaseDC(window, target);
     if (!buffer.dc) return false;
-    RECT client{};
-    GetClientRect(window, &client);
-    ResizeBackBuffer(client.right, client.bottom);
+    ResizeBackBuffer(kInitialWidth, kInitialHeight);
     return buffer.bitmap != nullptr;
 }
 
@@ -682,11 +770,7 @@ void Render(HWND window) {
         DrawPlayer();
         for (const Projectile& projectile : projectiles)
             DrawProjectileVisual(projectile);
-        HDC target = GetDC(window);
-        BitBlt(
-            target, 0, 0, buffer.width, buffer.height,
-            buffer.dc, 0, 0, SRCCOPY);
-        ReleaseDC(window, target);
+        PresentBackBuffer(window);
         return;
     }
     if (currentMap == "glyph") {
@@ -714,11 +798,7 @@ void Render(HWND window) {
                  radius * 2, 4},
                 0x000066AA);
         }
-        HDC target = GetDC(window);
-        BitBlt(
-            target, 0, 0, buffer.width, buffer.height,
-            buffer.dc, 0, 0, SRCCOPY);
-        ReleaseDC(window, target);
+        PresentBackBuffer(window);
         return;
     }
     if (currentMap != "interior") {
@@ -735,11 +815,7 @@ void Render(HWND window) {
             buffer.height * 0.5f -
                 text_renderer::kGlyphHeight * 0.5f,
             0x00FFFFFF, false);
-        HDC target = GetDC(window);
-        BitBlt(
-            target, 0, 0, buffer.width, buffer.height,
-            buffer.dc, 0, 0, SRCCOPY);
-        ReleaseDC(window, target);
+        PresentBackBuffer(window);
         return;
     }
     const bool runMode = run.status == RunStatus::Active ||
@@ -757,11 +833,7 @@ void Render(HWND window) {
             DrawRunArena();
     } else if (!MainMenuActive()) {
     if (rooms.empty()) {
-        HDC target = GetDC(window);
-        BitBlt(
-            target, 0, 0, buffer.width, buffer.height,
-            buffer.dc, 0, 0, SRCCOPY);
-        ReleaseDC(window, target);
+        PresentBackBuffer(window);
         return;
     }
     const EnemyType& giant = types.at(interior.archetype);
@@ -1054,11 +1126,7 @@ void Render(HWND window) {
         static_cast<int>(54 * bombReady), 7,
         bombCooldown <= 0 ? 0x0000FFFF : 0x00006688);
     }
-    HDC target = GetDC(window);
-    BitBlt(
-        target, 0, 0, buffer.width, buffer.height,
-        buffer.dc, 0, 0, SRCCOPY);
-    ReleaseDC(window, target);
+    PresentBackBuffer(window);
 }
 
 }  // namespace game

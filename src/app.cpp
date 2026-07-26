@@ -20,7 +20,12 @@
 namespace game {
 namespace {
 
-void UpdateController(HWND window) {
+void UpdateAimFromClient(HWND window, int clientX, int clientY) {
+    ClientToGameCoordinates(
+        window, clientX, clientY, aimX, aimY);
+}
+
+void UpdateController() {
     XINPUT_STATE state{};
     if (XInputGetState(0, &state) != ERROR_SUCCESS) {
         static bool firing = false;
@@ -41,12 +46,12 @@ void UpdateController(HWND window) {
     const float rightX = axis(pad.sThumbRX);
     const float rightY = axis(pad.sThumbRY);
     if (rightX != 0 || rightY != 0) {
-        RECT client{};
-        GetClientRect(window, &client);
-        aimX = (client.right - client.left) / 2 +
-            static_cast<int>(rightX * 1000.0f);
-        aimY = (client.bottom - client.top) / 2 -
-            static_cast<int>(rightY * 1000.0f);
+        const float distance =
+            static_cast<float>(std::max(buffer.width, buffer.height));
+        aimX = buffer.width / 2 +
+            static_cast<int>(rightX * distance);
+        aimY = buffer.height / 2 -
+            static_cast<int>(rightY * distance);
     }
     static bool firing = false;
     const bool primary = pad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
@@ -64,7 +69,7 @@ LRESULT CALLBACK WindowProcedure(
     HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_SIZE:
-            ResizeBackBuffer(LOWORD(lParam), HIWORD(lParam));
+            InvalidateRect(window, nullptr, FALSE);
             return 0;
         case WM_KEYDOWN:
         case WM_KEYUP: {
@@ -82,23 +87,24 @@ LRESULT CALLBACK WindowProcedure(
             return 0;
         }
         case WM_MOUSEMOVE:
-            aimX = GET_X_LPARAM(lParam);
-            aimY = GET_Y_LPARAM(lParam);
+            UpdateAimFromClient(
+                window, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return 0;
         case WM_LBUTTONDOWN:
-            aimX = GET_X_LPARAM(lParam);
-            aimY = GET_Y_LPARAM(lParam);
+            UpdateAimFromClient(
+                window, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             BeginPrimaryFire(aimX, aimY);
             SetCapture(window);
             return 0;
         case WM_LBUTTONUP:
-            ReleasePrimaryFire(
-                GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            UpdateAimFromClient(
+                window, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            ReleasePrimaryFire(aimX, aimY);
             ReleaseCapture();
             return 0;
         case WM_RBUTTONDOWN:
-            aimX = GET_X_LPARAM(lParam);
-            aimY = GET_Y_LPARAM(lParam);
+            UpdateAimFromClient(
+                window, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             FireSecondary(aimX, aimY);
             return 0;
         case WM_CAPTURECHANGED:
@@ -296,7 +302,7 @@ int WINAPI wWinMain(
                 frequency.QuadPart));
         previous = current;
         if (running && !IsIconic(window)) {
-            UpdateController(window);
+            UpdateController();
             Update(dt);
             UpdateAudio(dt);
             Render(window);

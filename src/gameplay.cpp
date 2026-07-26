@@ -70,24 +70,22 @@ bool DamagePlayer(int damage) {
 bool HitSpecialControl(const Rect& shot) {
     if (MainMenuActive()) return false;
     if (HitPlayerAlteration(shot)) return true;
-    RunNode* node = CurrentRunNode();
-    if (!debugRoom && node && node->type == RunNodeType::Shop &&
-        Overlaps(shot, ResetWordsTarget())) {
-        ResetWordMutations();
-        RebuildGameplayTextBoxes();
-        return true;
-    }
     return false;
 }
 
 void AwardSpawnerDeaths() {
     const RunNode* node = CurrentRunNode();
-    if (node && node->type == RunNodeType::PlayerInterior) return;
+    const bool awardsCurrency =
+        !node || node->type != RunNodeType::PlayerInterior;
     for (Spawner& spawner : spawners)
         if (spawner.health <= 0 && !spawner.rewardClaimed) {
             spawner.rewardClaimed = true;
-            run.currency += static_cast<std::uint32_t>(
-                SpawnerReward(spawner.enemyType));
+            for (Enemy& enemy : enemies)
+                if (enemy.spawnerId == spawner.id)
+                    enemy.health = 0;
+            if (awardsCurrency)
+                run.currency += static_cast<std::uint32_t>(
+                    SpawnerReward(spawner.enemyType));
         }
 }
 
@@ -98,7 +96,8 @@ bool AcquireHomingTarget(float x, float y, float& targetX, float& targetY) {
     constexpr float kHomingRangeSquared = kHomingRange * kHomingRange;
     const int activeRoom = RunArenaMode() ? -1 : CurrentRoom();
     for (const Enemy& enemy : enemies) {
-        if (enemy.health <= 0 || !EnemyIsSimulated(enemy) ||
+        if (enemy.health <= 0 || enemy.activationRemaining > 0 ||
+            !EnemyIsSimulated(enemy) ||
             (activeRoom >= 0 && enemy.room != activeRoom))
             continue;
         const Rect rect = EnemyRect(enemy);
@@ -204,17 +203,26 @@ void UnlockInteriorPortals() {
     if (!node || node->type != RunNodeType::Interior)
         return;
     const int organRoom = CurrentRoom();
+    if (organRoom < 0) return;
+    if (std::any_of(
+            node->portals.begin(), node->portals.end(),
+            [&](const RunPortal& portal) {
+                return portal.sourceRoom == organRoom;
+            }))
+        return;
     if (organRoom >= 0 && !node->portals.empty()) {
         if (!node->completed) {
             RunPortal& portal = node->portals.front();
             portal.active = true;
             portal.armed = false;
+            portal.sourceRoom = organRoom;
             portal.interiorTrigger = InteriorOrganExitTrigger(*node, organRoom);
         } else {
             RunPortal portal = node->portals.front();
             portal.destination = kInvalidRunNode;
             portal.active = true;
             portal.armed = false;
+            portal.sourceRoom = organRoom;
             node->portals.push_back(portal);
             node->portals.back().interiorTrigger =
                 InteriorOrganExitTrigger(*node, organRoom);
@@ -292,15 +300,20 @@ bool HitShield(const Rect& shot, int damage) {
                 !playerInteriorState.permanent[0] && shield.organ >= 0)
                 return true;
             if (node && node->type == RunNodeType::PlayerInterior &&
-                shield.organ >= 0 && node->playerInteriorRoom >= 0 &&
-                shield.organ != node->playerInteriorRoom)
+                shield.organ >= 0 &&
+                (node->playerInteriorWave ||
+                 node->playerInteriorAlteration >= 0))
+                return true;
+            if (node && node->type == RunNodeType::PlayerInterior &&
+                shield.organ >= 0 && node->playerInteriorDoorway >= 0 &&
+                shield.organ != node->playerInteriorDoorway)
                 return true;
             shield.health = std::max(0, shield.health - damage);
             if (shield.health == 0 && node &&
                 node->type == RunNodeType::PlayerInterior &&
                 !node->playerInteriorWave &&
                 shield.organ >= 0) {
-                node->playerInteriorRoom = shield.organ;
+                node->playerInteriorDoorway = shield.organ;
                 playerInteriorState.brokenDoorways[shield.organ] = true;
                 SaveMutations();
             }
@@ -400,8 +413,13 @@ void DetonateBomb(float x, float y, int damage, float radius) {
             !playerInteriorState.permanent[0] && shield.organ >= 0)
             continue;
         if (node && node->type == RunNodeType::PlayerInterior &&
-            shield.organ >= 0 && node->playerInteriorRoom >= 0 &&
-            shield.organ != node->playerInteriorRoom)
+            shield.organ >= 0 &&
+            (node->playerInteriorWave ||
+             node->playerInteriorAlteration >= 0))
+            continue;
+        if (node && node->type == RunNodeType::PlayerInterior &&
+            shield.organ >= 0 && node->playerInteriorDoorway >= 0 &&
+            shield.organ != node->playerInteriorDoorway)
             continue;
         const float dx = x - std::clamp(
             x, shield.rect.x, shield.rect.x + shield.rect.width);
@@ -414,7 +432,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
                 node->type == RunNodeType::PlayerInterior &&
                 !node->playerInteriorWave &&
                 shield.organ >= 0) {
-                node->playerInteriorRoom = shield.organ;
+                node->playerInteriorDoorway = shield.organ;
                 playerInteriorState.brokenDoorways[shield.organ] = true;
                 SaveMutations();
             }
@@ -1127,6 +1145,7 @@ int EnemyScale(const Enemy& enemy) {
 }
 
 bool EnemyVisualOverlaps(const Enemy& enemy, const Rect& target) {
+    if (enemy.activationRemaining > 0) return false;
     const int scale = EnemyScale(enemy);
     const EnemyType& type = types.at(enemy.type);
     for (std::size_t row = 0; row < type.sprite.size(); ++row)
@@ -1164,6 +1183,7 @@ bool EnemyVisualFitsNetwork(const Enemy& enemy, float x, float y) {
 
 bool EnemyVisualWithinRadius(
     const Enemy& enemy, float x, float y, float radius) {
+    if (enemy.activationRemaining > 0) return false;
     const float radiusSquared = radius * radius;
     const int scale = EnemyScale(enemy);
     const EnemyType& type = types.at(enemy.type);
@@ -1395,7 +1415,13 @@ void UpdateWaveProgress(float dt) {
                 [](const Enemy& value) { return value.health > 0; })) {
             node->playerInteriorWave = false;
             node->completed = true;
-            shieldBlocks.clear();
+            shieldBlocks.erase(
+                std::remove_if(
+                    shieldBlocks.begin(), shieldBlocks.end(),
+                    [](const ShieldBlock& shield) {
+                        return shield.organ < 0;
+                    }),
+                shieldBlocks.end());
             const Room& completedRoom = rooms[node->playerInteriorRoom];
             for (RunPortal& portal : node->portals) {
                 portal.active = true;
@@ -1517,6 +1543,7 @@ void ResolveEnemyCrowding() {
     };
     for (std::size_t index = 0; index < enemies.size(); ++index) {
         if (enemies[index].health <= 0 ||
+            enemies[index].activationRemaining > 0 ||
             !EnemyIsSimulated(enemies[index]))
             continue;
         const Rect rect = footprint(enemies[index]);

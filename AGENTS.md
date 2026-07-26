@@ -11,6 +11,10 @@
   `state`, Lua/world generation in the `world_*` units, simulation in
   `gameplay`/`gameplay_*`, and drawing in `rendering`/`rendering_*`. Preserve
   Makefile dependency-based incremental builds.
+- Rendering uses a fixed 1000x720 logical backbuffer, uniformly scaled with
+  letterboxing into the Win32 client area. Keep camera, HUD, simulation range,
+  mouse input, and controller aiming in logical coordinates; map client mouse
+  coordinates through the presentation rectangle.
 - Immutable release data lives in `release/golden_scripts`; runtime copies and
   persistent player mutations live in the ignored `release/game` directory.
 - Root WAV sources build into `release/golden_audio`; playback uses writable
