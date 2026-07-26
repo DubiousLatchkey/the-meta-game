@@ -29,13 +29,13 @@
   collision/layout in `audio_level`.
 - Keep level 8 rotated glyph-border layout and collision in `glyph_level`.
   Arena glyph pixels share the atlas used by normal text rendering.
-- Keep deterministic run graph generation in `roguelite`, generalized sealed
+- Keep deterministic run-choice generation in `roguelite`, generalized sealed
   collision/openings in `arena_level`, run combat in `gameplay`, and run
   presentation in `rendering`. Run-node UI must not create mutable `Word`
-  records or persistence entries except the shared shootable `EXIT TO MAP`
-  phrase. Shop `RESET WORDS` restores only the pre-mutation Word-byte baseline.
+  records or persistence entries. Shop `RESET WORDS` restores only the
+  pre-mutation Word-byte baseline.
 - Roguelite tuning and reusable portal/powerup icon masks live in the immutable
-  Lua world. Run graph, coins, offers, pickups, timers, and enemy-difficulty
+  Lua world. Run choices, coins, offers, pickups, timers, and enemy-difficulty
   stages are session-only; death creates a fresh seed and restores baseline
   enemy difficulty / organ value displays while preserving cosmetic asset
   mutations and Player Internals progression. Only R resets writable Lua/audio
@@ -44,18 +44,18 @@
   Player weapon base cadence, count, spread, speed, damage, range, width/radius,
   homing, and explosive behavior live in Lua; C++ resolves upgrades, powerups,
   and Player Internals alterations through the shared weapon-stat pipeline.
-  Completed encounters expose one map exit; the session-only horizontal DAG
-  owns path selection, and only immediate successors are physical portals.
+  Completed arenas expose direct portal choices; shops return to their source
+  arena, while interior exits lead to independently randomized arenas.
   Shop purchases are made by shooting their numbered gameplay targets.
-- Player Internals occupy about 12% of run nodes beside 16% enemy interiors.
+- Player Internals are offered about once per seven arena choices, enemy
+  interiors once per three, and Boss Interiors once per four.
   Their persistent 3x3 arena-room grid allows one shield doorway break and one
   alteration per visit. Alterations seal the room for a rewardless wave, then
-  expose the map exit; repeatable ranks, one-time powers, and opened doorways
+  expose an arena exit; repeatable ranks, one-time powers, and opened doorways
   persist in `mutations.lua` across deaths and reset only with R.
   Each alteration exposes its normalized Lua-backed numeric value; shooting it
   reduces the actual value by one, and every lower value improves the player.
-- The penultimate run depth always offers one or two alternative Boss Interior
-  quadrant nodes. Each renders the full boss oval room graph but only connects
+- Boss Interior choices render the full boss oval room graph but only connect
   the assigned quadrant; clearing every turret target there disables that
   quadrant for the final boss of the current run only.
 - The terminal Boss is a large sealed-arena oval with sweeping burst turrets and

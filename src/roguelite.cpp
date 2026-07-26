@@ -54,129 +54,20 @@ void StartRun(std::uint64_t globalSeed) {
     ResetRun();
     run.globalSeed = globalSeed;
     run.status = RunStatus::Active;
-
-    const std::uint32_t depthCount = rogueliteTuning.runDepths;
-    std::vector<std::vector<RunNodeId>> layers(depthCount);
-    for (std::uint32_t depth = 0; depth < depthCount; ++depth) {
-        const bool endpoint = depth == 0 || depth + 1 == depthCount;
-        const bool penultimate = depth + 2 == depthCount;
-        const std::uint32_t count = endpoint ? 1 :
-            penultimate
-                ? 1 + Bounded(
-                    DeriveRunSeed(globalSeed, 0x424f535151ULL, depth), 2)
-                : rogueliteTuning.branchNodesMin + Bounded(
-                    DeriveRunSeed(globalSeed, 0x4c41594552ULL, depth),
-                    rogueliteTuning.branchNodesMax -
-                        rogueliteTuning.branchNodesMin + 1);
-        std::array<bool, 4> usedQuadrant{};
-        for (std::uint32_t slot = 0; slot < count; ++slot) {
-            RunNode node;
-            node.id = static_cast<RunNodeId>(run.nodes.size());
-            node.depth = depth;
-            node.seed = DeriveRunSeed(globalSeed, depth, slot);
-            if (depth + 1 == depthCount) {
-                node.type = RunNodeType::Boss;
-            } else if (depth == 0) {
-                node.type = RunNodeType::EnemyArena;
-            } else if (penultimate) {
-                node.type = RunNodeType::BossInterior;
-                const std::uint32_t start = Bounded(
-                    DeriveRunSeed(node.seed, 0x51554144ULL), 4);
-                for (std::uint32_t offset = 0; offset < 4; ++offset) {
-                    const std::uint32_t index = (start + offset) % 4;
-                    if (!usedQuadrant[index]) {
-                        usedQuadrant[index] = true;
-                        node.bossQuadrant =
-                            static_cast<BossQuadrant>(index);
-                        break;
-                    }
-                }
-            } else {
-                bool mayBeShop = true;
-                for (RunNodeId parent : layers[depth - 1])
-                    if (run.nodes[parent].type == RunNodeType::Shop)
-                        mayBeShop = false;
-                node.type = ChooseNodeType(
-                    DeriveRunSeed(node.seed, 0x54595045ULL), mayBeShop);
-            }
-            if (node.type == RunNodeType::Interior)
-                node.arenaArchetype = InteriorArchetype(node.seed);
-            else if (node.type == RunNodeType::EnemyArena) {
-                node.arenaArchetype = ArenaArchetype(node.seed);
-                node.downside = static_cast<EnemyDifficultyStat>(
-                    Bounded(
-                        DeriveRunSeed(node.seed, 0x444f574e53494445ULL),
-                        4));
-                node.hardArena = depth != 0 &&
-                    DeriveRunSeed(node.seed, 0x48415244ULL) % 4 == 0;
-            }
-            layers[depth].push_back(node.id);
-            run.nodes.push_back(std::move(node));
-        }
-    }
-
-    for (std::uint32_t depth = 0; depth + 1 < depthCount; ++depth) {
-        auto& current = layers[depth];
-        auto& next = layers[depth + 1];
-        for (std::size_t index = 0; index < current.size(); ++index) {
-            AddEdge(
-                run.nodes[current[index]],
-                run.nodes[next[index % next.size()]]);
-        }
-        // Add only the edges required to keep every node reachable. Every
-        // current node already has an exit, so this produces sparse branches
-        // and merges without dead ends.
-        for (std::size_t index = 0; index < next.size(); ++index) {
-            bool linked = false;
-            for (RunNodeId parent : current)
-                linked = linked ||
-                    std::find(
-                        run.nodes[parent].next.begin(),
-                        run.nodes[parent].next.end(), next[index]) !=
-                    run.nodes[parent].next.end();
-            if (!linked)
-                AddEdge(
-                    run.nodes[current[index % current.size()]],
-                    run.nodes[next[index]]);
-        }
-        // Give every path up to three distinct forward choices.  This is
-        // deterministic and preserves the horizontal DAG while making route
-        // selection materially more branching than reachability alone.
-        if (next.size() > 1)
-            for (std::size_t index = 0; index < current.size(); ++index) {
-                RunNode& node = run.nodes[current[index]];
-                const std::size_t desired = std::min<std::size_t>(
-                    next.size(), 1 + rogueliteTuning.extraBranchEdges);
-                const std::size_t start = Bounded(
-                    DeriveRunSeed(
-                        globalSeed, 0x4558545241454447ULL,
-                        depth * 16 + index),
-                    static_cast<std::uint32_t>(next.size()));
-                for (std::size_t offset = 0;
-                     offset < next.size() && node.next.size() < desired;
-                     ++offset)
-                    AddEdge(
-                        node, run.nodes[
-                            next[(start + offset) % next.size()]]);
-            }
-    }
-
-    run.startNode = layers.front().front();
+    RunNode start;
+    start.id = 0;
+    start.type = RunNodeType::EnemyArena;
+    start.depth = rogueliteTuning.runDepths;
+    start.seed = DeriveRunSeed(globalSeed, 0x5354415254ULL);
+    start.arenaArchetype = DeriveRunSeed(
+        start.seed, 0x4649525354415245ULL) % 2 == 0
+        ? "circle" : "triangle";
+    start.downside = static_cast<EnemyDifficultyStat>(Bounded(
+        DeriveRunSeed(start.seed, 0x444f574e53494445ULL), 6));
+    run.nodes.push_back(std::move(start));
+    run.startNode = 0;
     run.currentNode = run.startNode;
     run.nodes[run.startNode].entered = true;
-    constexpr float marginX = 240.0f;
-    constexpr float marginY = 220.0f;
-    const float depthSpacing = depthCount > 1
-        ? (kRunMapWidth - marginX * 2.0f) / (depthCount - 1) : 0.0f;
-    for (std::uint32_t depth = 0; depth < depthCount; ++depth) {
-        const auto& layer = layers[depth];
-        const float verticalSpacing =
-            (kRunMapHeight - marginY * 2.0f) / (layer.size() + 1);
-        for (std::size_t slot = 0; slot < layer.size(); ++slot)
-            run.mapVertices.push_back({
-                layer[slot], marginX + depth * depthSpacing,
-                marginY + (slot + 1) * verticalSpacing});
-    }
 }
 
 void ResetRun() { run = RunData{}; }
@@ -202,6 +93,8 @@ std::uint32_t DifficultyStage(
         case EnemyDifficultyStat::Speed: return stages.speed;
         case EnemyDifficultyStat::Health: return stages.health;
         case EnemyDifficultyStat::Burst: return stages.burst;
+        case EnemyDifficultyStat::Damage: return stages.damage;
+        case EnemyDifficultyStat::SpawnerHealth: return stages.spawnerHealth;
     }
     return 0;
 }
@@ -212,6 +105,8 @@ const char* DifficultyStatName(EnemyDifficultyStat stat) {
         case EnemyDifficultyStat::Speed: return "SPEED";
         case EnemyDifficultyStat::Health: return "HEALTH";
         case EnemyDifficultyStat::Burst: return "SPAWN HERD MODIFIER";
+        case EnemyDifficultyStat::Damage: return "DAMAGE";
+        case EnemyDifficultyStat::SpawnerHealth: return "SPAWNER HEALTH";
     }
     return "STAT";
 }
@@ -247,14 +142,6 @@ Rect RunMapVertexRect(const RunMapVertex& vertex) {
 bool SetCurrentRunNode(RunNodeId id) {
     RunNode* node = GetRunNode(id);
     if (!node || run.status != RunStatus::Active) return false;
-    if (run.currentNode != kInvalidRunNode &&
-        run.currentNode != id) {
-        const RunNode* current = GetRunNode(run.currentNode);
-        if (!current ||
-            std::find(current->next.begin(), current->next.end(), id) ==
-                current->next.end())
-            return false;
-    }
     run.currentNode = id;
     node->entered = true;
     return true;

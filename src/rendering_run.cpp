@@ -27,7 +27,7 @@ const char* NodeTypeName(RunNodeType type) {
 std::string NodeLabel(const RunNode& node) {
     std::string label;
     if (node.type == RunNodeType::BossInterior) {
-        label = std::string("BOSS ") + BossQuadrantName(node.bossQuadrant);
+        label = "INSIDE BOSS";
         return label;
     }
     if ((node.type == RunNodeType::Interior ||
@@ -39,10 +39,11 @@ std::string NodeLabel(const RunNode& node) {
             [](unsigned char value) {
                 return static_cast<char>(std::toupper(value));
             });
-        label += node.type == RunNodeType::Interior
-            ? " INTERIOR" : " ARENA";
+        label = node.type == RunNodeType::Interior
+            ? "INSIDE " + label : label + " ARENA";
         if (node.type == RunNodeType::EnemyArena) {
-            label += " +" + std::string(DifficultyStatName(node.downside));
+            label += " +ALL ENEMY " +
+                std::string(DifficultyStatName(node.downside));
             if (node.hardArena) label = "HARD " + label;
         }
         return label;
@@ -214,7 +215,8 @@ void DrawRunArena() {
     for (const RunPortal& portal : node->portals) {
         if (!portal.active || DebugRoomActive()) continue;
         const RunNode* destination = GetRunNode(run, portal.destination);
-        const Rect portalRect = ExitPortalRect();
+        const Rect portalRect = portal.interiorTrigger.width > 0
+            ? portal.interiorTrigger : ExitPortalRect();
         const float x = portalRect.x, y = portalRect.y;
         const char* assetId = !destination ? "portal_arena" :
             destination->type == RunNodeType::BossInterior
@@ -226,7 +228,75 @@ void DrawRunArena() {
             destination->type == RunNodeType::Boss ? "portal_boss" :
             "portal_arena";
         DrawPortalEffect({x, y, portalRect.width, portalRect.height}, assetId);
-        (void)destination;
+        if (destination) {
+            std::string left = NodeTypeName(destination->type);
+            std::string right;
+            if (destination->type == RunNodeType::EnemyArena ||
+                destination->type == RunNodeType::Interior) {
+                left = destination->arenaArchetype;
+                std::transform(
+                    left.begin(), left.end(), left.begin(),
+                    [](unsigned char value) {
+                        return static_cast<char>(std::toupper(value));
+                    });
+                if (destination->type == RunNodeType::EnemyArena) {
+                    left += " ARENA";
+                    right = std::string("+ALL ENEMY ") +
+                        DifficultyStatName(destination->downside);
+                } else {
+                    left = "INSIDE " + left;
+                }
+            }
+            if (destination->type == RunNodeType::PlayerInterior)
+                left = "INSIDE PLAYER";
+            if (destination->type == RunNodeType::BossInterior)
+                left = "INSIDE BOSS";
+            const bool horizontal = portal.direction == PortalDirection::East ||
+                portal.direction == PortalDirection::West;
+            if (horizontal) {
+                DrawTextString(
+                    left,
+                    static_cast<int>(
+                        CenterX(portalRect) -
+                        text_renderer::MeasureWidth(left.size()) * 0.5f -
+                        CameraX()),
+                    static_cast<int>(
+                        portalRect.y - text_renderer::kGlyphHeight - 16 -
+                        CameraY()),
+                    0x00FFFFFF);
+            } else {
+                DrawTextString(
+                    left,
+                    static_cast<int>(
+                        portalRect.x - 18 -
+                        text_renderer::MeasureWidth(left.size()) - CameraX()),
+                    static_cast<int>(
+                        CenterY(portalRect) -
+                        text_renderer::kGlyphHeight * 0.5f - CameraY()),
+                    0x00FFFFFF);
+            }
+            if (!right.empty()) {
+                if (horizontal)
+                    DrawTextString(
+                        right,
+                        static_cast<int>(
+                            CenterX(portalRect) -
+                            text_renderer::MeasureWidth(right.size()) * 0.5f -
+                            CameraX()),
+                        static_cast<int>(
+                            portalRect.y + portalRect.height + 16 - CameraY()),
+                        0x00FFFFFF);
+                else
+                    DrawTextString(
+                        right,
+                        static_cast<int>(
+                            portalRect.x + portalRect.width + 18 - CameraX()),
+                        static_cast<int>(
+                            CenterY(portalRect) -
+                            text_renderer::kGlyphHeight * 0.5f - CameraY()),
+                        0x00FFFFFF);
+            }
+        }
     }
     if (DebugRoomActive()) {
         const Rect portalRect = ExitPortalRect();
@@ -440,12 +510,11 @@ void DrawInteriorMinimap(const RunNode& node) {
     const bool interiorNode = node.type == RunNodeType::Interior ||
         node.type == RunNodeType::PlayerInterior ||
         node.type == RunNodeType::BossInterior;
-    if (node.hardArena && !interiorNode) return;
+    if (!interiorNode) return;
 
     int minRow = 0, maxRow = 0, minColumn = 0, maxColumn = 0;
     bool haveRoom = false;
     for (const Room& room : rooms) {
-        if (room.distance < 0) continue;
         if (!haveRoom) {
             minRow = maxRow = room.row;
             minColumn = maxColumn = room.column;
@@ -458,6 +527,21 @@ void DrawInteriorMinimap(const RunNode& node) {
         }
     }
     if (!haveRoom) return;
+    if (node.type == RunNodeType::Interior) {
+        const auto found = types.find(node.arenaArchetype);
+        if (found != types.end() && !found->second.sprite.empty()) {
+            std::size_t spriteColumns = 0;
+            for (const auto& row : found->second.sprite)
+                spriteColumns = std::max(spriteColumns, row.size());
+            const Room& anchor = rooms.front();
+            minRow = anchor.row - anchor.pixelRow;
+            minColumn = anchor.column - anchor.pixelColumn;
+            maxRow = minRow +
+                static_cast<int>(found->second.sprite.size()) - 1;
+            maxColumn = minColumn +
+                static_cast<int>(spriteColumns) - 1;
+        }
+    }
 
     const int rows = maxRow - minRow + 1;
     const int columns = maxColumn - minColumn + 1;
@@ -469,16 +553,22 @@ void DrawInteriorMinimap(const RunNode& node) {
     const int top = buffer.height - height - 12;
     DrawRectangle(left - 2, top - 2, width + 4, height + 4, 0x00070B11);
     DrawRectangle(left, top, width, height, 0x00252A30);
+    for (int row = minRow; row <= maxRow; ++row)
+        for (int column = minColumn; column <= maxColumn; ++column)
+            DrawRectangle(
+                left + 4 + (column - minColumn) * cell,
+                top + 4 + (row - minRow) * cell,
+                cell - 1, cell - 1, 0x00242C34);
 
     const int playerRoom = CurrentRoom();
     for (int index = 0; index < static_cast<int>(rooms.size()); ++index) {
         const Room& room = rooms[index];
-        if (room.distance < 0) continue;
         const int x = left + 4 + (room.column - minColumn) * cell;
         const int y = top + 4 + (room.row - minRow) * cell;
         const bool isPlayer = index == playerRoom;
         DrawRectangle(x, y, cell - 1, cell - 1,
-            isPlayer ? 0x00FFFFFF : 0x0060C0D0);
+            isPlayer ? 0x00FFFFFF :
+            room.distance >= 0 ? 0x0060C0D0 : 0x00141A20);
     }
 }
 
@@ -497,11 +587,13 @@ void DrawRunHud() {
     const std::string healthLabel = "HEALTH";
     DrawTextString(healthLabel, 12, 10, 0x00FFFFFF);
     const int healthX = 24 + text_renderer::MeasureWidth(healthLabel.size());
+    const int healthY =
+        10 + (text_renderer::kGlyphHeight - kPlayerRenderSize) / 2;
     for (int index = 0; index < EffectivePlayerMaxHealth(); ++index) {
         float alpha = index < playerHealth ? 1.0f : 0.15f;
         if (index == playerHealth && regenerationProgress > 0.0f)
             alpha = 0.15f + regenerationProgress * 0.85f;
-        DrawHealthSprite(healthX + index * 22, 9, alpha);
+        DrawHealthSprite(healthX + index * 22, healthY, alpha);
     }
     const std::string weapons =
         std::string(PrimaryWeaponName(run.primaryWeapon)) + " / " +
@@ -527,7 +619,7 @@ void DrawRunHud() {
 
     const std::string coins = "COINS " + std::to_string(run.currency);
     const std::string depth =
-        "DEPTH " + std::to_string(current->depth + 1);
+        "LEVEL " + std::to_string(current->depth);
     DrawTextString(
         coins,
         buffer.width - 12 - text_renderer::MeasureWidth(coins.size()),

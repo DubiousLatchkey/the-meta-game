@@ -62,7 +62,7 @@ WeaponStats ResolvePlayerWeapon(const std::string& id) {
         UpgradeRank(UpgradeType::FireRate);
     result.cadence = std::max(
         0.05f, result.cadence -
-            0.0125f * result.cadenceEffectScale * fireRanks);
+            0.025f * result.cadenceEffectScale * fireRanks);
     if (id == "bomb" || id == "contact_bomb" || id == "homing_rocket")
         result.cadence = std::max(
             0.05f, result.cadence -
@@ -93,6 +93,158 @@ std::string ArenaArchetype(std::uint64_t seed) {
     return ids[DeriveRunSeed(seed, 0x41524348ULL) % 4];
 }
 
+std::uint32_t EnemyThreat(const std::string& archetype) {
+    const EnemyDifficultyStages& stages =
+        DifficultyStages(run, archetype);
+    const std::array<std::uint32_t, 6> values{{
+        stages.size, stages.speed, stages.health, stages.burst,
+        stages.damage, stages.spawnerHealth}};
+    const std::uint32_t total =
+        stages.size + stages.speed + stages.health + stages.burst +
+        stages.damage + stages.spawnerHealth;
+    const std::uint32_t peak =
+        *std::max_element(values.begin(), values.end());
+    // Total growth catches broadly upgraded enemies; the squared peak term
+    // makes one dangerously over-upgraded stat matter on its own.
+    return 1 + total + total * total / 4 + peak * peak;
+}
+
+std::string ThreatWeightedInteriorArchetype(std::uint64_t seed) {
+    static constexpr std::array<const char*, 4> ids{{
+        "circle", "triangle", "charger", "shooter"}};
+    std::array<std::uint32_t, ids.size()> weights{};
+    std::uint32_t totalWeight = 0;
+    for (std::size_t index = 0; index < ids.size(); ++index) {
+        weights[index] = EnemyThreat(ids[index]);
+        totalWeight += weights[index];
+    }
+    std::uint32_t roll = static_cast<std::uint32_t>(
+        DeriveRunSeed(seed, 0x544852454154ULL) % totalWeight);
+    for (std::size_t index = 0; index < ids.size(); ++index) {
+        if (roll < weights[index]) return ids[index];
+        roll -= weights[index];
+    }
+    return ids.back();
+}
+
+RunNodeId AppendChoiceNode(
+    RunNodeId sourceId, RunNodeType type, std::uint32_t level,
+    std::uint64_t seed, std::size_t slot) {
+    RunNode choice;
+    choice.id = static_cast<RunNodeId>(run.nodes.size());
+    choice.type = type;
+    choice.depth = level;
+    choice.seed = seed;
+    if (type == RunNodeType::EnemyArena) {
+        choice.arenaArchetype = ArenaArchetype(seed);
+    } else if (type == RunNodeType::Interior) {
+        choice.arenaArchetype =
+            ThreatWeightedInteriorArchetype(seed);
+    }
+    if (type == RunNodeType::EnemyArena) {
+        choice.downside = static_cast<EnemyDifficultyStat>(
+            DeriveRunSeed(seed, 0x444f574e53494445ULL) % 6);
+        choice.hardArena =
+            DeriveRunSeed(seed, 0x48415244ULL) % 4 == 0;
+    } else if (type == RunNodeType::BossInterior) {
+        choice.bossQuadrant = static_cast<BossQuadrant>(
+            DeriveRunSeed(seed, 0x51554144ULL) % 4);
+    } else if (type == RunNodeType::Shop) {
+        choice.shopReturnDestination = sourceId;
+    }
+    const RunNodeId id = choice.id;
+    run.nodes.push_back(std::move(choice));
+    run.nodes[sourceId].next.push_back(id);
+    (void)slot;
+    return id;
+}
+
+Rect ArenaChoicePortalRect(std::size_t index, std::size_t count) {
+    constexpr float size = 72.0f;
+    constexpr float inset = 170.0f;
+    const std::array<Rect, 4> cardinal{{
+        {kRunArenaWidth * 0.5f - size * 0.5f, inset, size, size},
+        {kRunArenaWidth - inset - size,
+         kRunArenaHeight * 0.5f - size * 0.5f, size, size},
+        {kRunArenaWidth * 0.5f - size * 0.5f,
+         kRunArenaHeight - inset - size, size, size},
+        {inset, kRunArenaHeight * 0.5f - size * 0.5f, size, size},
+    }};
+    if (count == 2) return cardinal[index == 0 ? 3 : 1];
+    return cardinal[index % cardinal.size()];
+}
+
+void BuildArenaChoicePortals(RunNode& node) {
+    const RunNodeId sourceId = node.id;
+    const std::uint32_t sourceLevel = node.depth;
+    const std::uint64_t sourceSeed = node.seed;
+    std::vector<RunNodeType> choices;
+    const std::uint32_t nextLevel =
+        sourceLevel > 0 ? sourceLevel - 1 : 0;
+    if (nextLevel == 0) {
+        choices = {RunNodeType::Boss, RunNodeType::Shop};
+    } else {
+        const std::uint64_t roll =
+            DeriveRunSeed(sourceSeed, 0x504f5254414c53ULL);
+        const bool enemyInterior =
+            run.arenasWithoutEnemyInterior >= 2 || roll % 3 == 0;
+        if (enemyInterior)
+            choices.push_back(RunNodeType::Interior);
+        run.arenasWithoutEnemyInterior = enemyInterior
+            ? 0 : run.arenasWithoutEnemyInterior + 1;
+        if ((roll >> 8) % 4 == 0)
+            choices.push_back(RunNodeType::BossInterior);
+        if ((roll >> 16) % 7 == 0)
+            choices.push_back(RunNodeType::PlayerInterior);
+        if ((roll >> 24) % 10 != 0)
+            choices.push_back(RunNodeType::Shop);
+        while (choices.size() < 4)
+            choices.push_back(RunNodeType::EnemyArena);
+        for (std::size_t index = choices.size(); index > 1; --index) {
+            const std::size_t other = static_cast<std::size_t>(
+                DeriveRunSeed(roll, 0x53485546464c45ULL, index) % index);
+            std::swap(choices[index - 1], choices[other]);
+        }
+    }
+    run.nodes.reserve(run.nodes.size() + choices.size());
+    RunNode& source = run.nodes[sourceId];
+    source.portals.clear();
+    source.next.clear();
+    for (std::size_t index = 0; index < choices.size(); ++index) {
+        const std::uint64_t seed = DeriveRunSeed(
+            sourceSeed, 0x43484f494345ULL, index);
+        const RunNodeId destination = AppendChoiceNode(
+            sourceId, choices[index], nextLevel, seed, index);
+        RunPortal portal;
+        portal.destination = destination;
+        portal.direction = choices.size() == 2
+            ? (index == 0 ? PortalDirection::West : PortalDirection::East)
+            : static_cast<PortalDirection>(index);
+        portal.active = true;
+        portal.interiorTrigger =
+            ArenaChoicePortalRect(index, choices.size());
+        run.nodes[sourceId].portals.push_back(portal);
+    }
+}
+
+void BuildInteriorArenaDestinations(RunNode& node) {
+    const RunNodeId sourceId = node.id;
+    const std::uint64_t sourceSeed = node.seed;
+    const std::size_t portalCount = node.portals.size();
+    const std::uint32_t nextLevel =
+        node.depth > 0 ? node.depth - 1 : 0;
+    run.nodes.reserve(run.nodes.size() + portalCount);
+    run.nodes[sourceId].next.clear();
+    for (std::size_t index = 0; index < portalCount; ++index) {
+        RunPortal& portal = run.nodes[sourceId].portals[index];
+        if (portal.destination != kInvalidRunNode) continue;
+        portal.destination = AppendChoiceNode(
+            sourceId, RunNodeType::EnemyArena, nextLevel,
+            DeriveRunSeed(sourceSeed, 0x494e5445584954ULL, index), index);
+        run.nodes[sourceId].portals[index].armed = false;
+    }
+}
+
 std::uint32_t EnemyStage(
     const std::string& archetype, EnemyDifficultyStat stat) {
     return RunMode() ? DifficultyStage(run, archetype, stat) : 0;
@@ -106,6 +258,8 @@ std::uint32_t& MutableEnemyStage(
         case EnemyDifficultyStat::Speed: return stages.speed;
         case EnemyDifficultyStat::Health: return stages.health;
         case EnemyDifficultyStat::Burst: return stages.burst;
+        case EnemyDifficultyStat::Damage: return stages.damage;
+        case EnemyDifficultyStat::SpawnerHealth: return stages.spawnerHealth;
     }
     return stages.size;
 }
@@ -116,6 +270,8 @@ bool OrganDifficultyStat(
     else if (id == "speed") stat = EnemyDifficultyStat::Speed;
     else if (id == "health") stat = EnemyDifficultyStat::Health;
     else if (id == "burst") stat = EnemyDifficultyStat::Burst;
+    else if (id == "damage") stat = EnemyDifficultyStat::Damage;
+    else if (id == "spawner_health") stat = EnemyDifficultyStat::SpawnerHealth;
     else return false;
     return true;
 }
@@ -128,6 +284,8 @@ int BaseStatValue(const EnemyType& type, EnemyDifficultyStat stat) {
         case EnemyDifficultyStat::Health: return type.maxHealth;
         case EnemyDifficultyStat::Burst:
             return (type.burstMin + type.burstMax + 1) / 2;
+        case EnemyDifficultyStat::Damage: return type.contactDamage;
+        case EnemyDifficultyStat::SpawnerHealth: return 5;
     }
     return 0;
 }
@@ -138,7 +296,9 @@ int DisplayEnemyOrganValue(
     // Size, speed, and burst retain their native simulation units. Their
     // shootable labels instead expose the normalized difficulty rank, whose
     // floor is one. Health remains a direct health-value display.
-    if (stat != EnemyDifficultyStat::Health)
+    if (stat != EnemyDifficultyStat::Health &&
+        stat != EnemyDifficultyStat::Damage &&
+        stat != EnemyDifficultyStat::SpawnerHealth)
         return 1 + static_cast<int>(stage);
     return BaseStatValue(type, stat) + static_cast<int>(stage);
 }
@@ -200,6 +360,26 @@ void RebuildRunArena(RunNode& node) {
         {0, 0, kRunArenaWidth, kRunArenaHeight},
         node.seed, {}, 12, kWall, false, fullAudioWall, fullAudioSound,
         fullAudioDirection);
+    // Keep choice portals in their intended cardinal directions while moving
+    // them inward until the complete trigger is clear of arena-wall geometry.
+    if (node.type == RunNodeType::EnemyArena && node.completed)
+        for (RunPortal& portal : node.portals) {
+            Rect candidate = portal.interiorTrigger;
+            float stepX = 0;
+            float stepY = 0;
+            if (portal.direction == PortalDirection::North) stepY = 24;
+            else if (portal.direction == PortalDirection::East) stepX = -24;
+            else if (portal.direction == PortalDirection::South) stepY = -24;
+            else stepX = 24;
+            for (int attempt = 0; attempt < 24; ++attempt) {
+                if (ArenaAllowsPlayer(runArena, candidate)) {
+                    portal.interiorTrigger = candidate;
+                    break;
+                }
+                candidate.x += stepX;
+                candidate.y += stepY;
+            }
+        }
 }
 
 Rect InteriorEntryPortalRect(int entryRoom) {
@@ -252,9 +432,7 @@ Rect PhysicalExitPortalRect() {
 }
 
 void AppendPortalTextBoxes() {
-    const bool active = debugRoom ||
-        (CurrentRunNode() && !CurrentRunNode()->portals.empty() &&
-         CurrentRunNode()->portals.front().active);
+    const bool active = debugRoom;
     const auto phrase = phrases.find("exit_to_map");
     if (!active || phrase == phrases.end()) return;
     const Rect label = PortalLabelRect();
@@ -284,9 +462,11 @@ void RebuildGameplayTextBoxes() {
 
 void CreateWaveSpawners(RunNode& node, std::uint32_t wave) {
     spawners.clear();
-    const std::uint32_t count =
+    const bool firstArena = node.id == run.startNode;
+    const std::uint32_t count = std::min<std::uint32_t>(
+        firstArena ? 3 : UINT32_MAX,
         std::max<std::uint32_t>(2, 1 + wave) +
-        static_cast<std::uint32_t>(node.hardArena);
+        static_cast<std::uint32_t>(node.hardArena));
     static constexpr std::array<const char*, 4> enemyTypes{{
         "circle", "triangle", "charger", "shooter"}};
     for (std::uint32_t index = 0; index < count; ++index) {
@@ -297,6 +477,9 @@ void CreateWaveSpawners(RunNode& node, std::uint32_t wave) {
         if (index == 0) {
             spawner.enemyType = node.arenaArchetype;
             spawner.guaranteedArchetype = true;
+        } else if (firstArena) {
+            spawner.enemyType = DeriveRunSeed(seed, 0x45415359ULL) % 2 == 0
+                ? "circle" : "triangle";
         } else {
             std::array<const char*, 3> alternatives{};
             std::size_t alternativeCount = 0;
@@ -314,7 +497,8 @@ void CreateWaveSpawners(RunNode& node, std::uint32_t wave) {
             static_cast<float>(
                 (seed >> 16) % static_cast<std::uint64_t>(
                     kRunArenaHeight - 360.0f));
-        spawner.health = 3 + static_cast<int>(wave);
+        spawner.health = 5 + static_cast<int>(wave) + static_cast<int>(
+            EnemyStage(node.arenaArchetype, EnemyDifficultyStat::SpawnerHealth));
         ResetSpawnerTimer(
             spawner, 0.75f +
                 static_cast<float>((seed >> 32) % 100) / 100.0f);
@@ -366,42 +550,6 @@ void ConfigureNode(RunNode& node) {
         node.playerInteriorAlterationTimer = 0;
         node.playerInteriorRoom = -1;
         node.playerInteriorWave = false;
-        std::array<bool, 9> reachable{};
-        std::queue<int> pending;
-        reachable[node.playerInteriorSpawnRoom] = true;
-        pending.push(node.playerInteriorSpawnRoom);
-        while (!pending.empty()) {
-            const int room = pending.front();
-            pending.pop();
-            for (int doorway = 0; doorway < 12; ++doorway) {
-                if (!playerInteriorState.brokenDoorways[doorway]) continue;
-                const auto [first, second] =
-                    PlayerInteriorDoorwayRooms(doorway);
-                const int next = first == room ? second :
-                    second == room ? first : -1;
-                if (next >= 0 && !reachable[next]) {
-                    reachable[next] = true;
-                    pending.push(next);
-                }
-            }
-        }
-        const int doorwayStart = static_cast<int>(
-            DeriveRunSeed(node.seed, 0x444f4f52574159ULL) % 12);
-        for (int offset = 0; offset < 12; ++offset) {
-            const int doorway = (doorwayStart + offset) % 12;
-            if (playerInteriorState.brokenDoorways[doorway]) continue;
-            const auto [first, second] =
-                PlayerInteriorDoorwayRooms(doorway);
-            if (first >= 0 && reachable[first] != reachable[second]) {
-                node.playerInteriorRoom = doorway;
-                break;
-            }
-        }
-        if (node.playerInteriorRoom >= 0) {
-            OpenPlayerInteriorDoorway(node.playerInteriorRoom);
-            shieldBlocks.push_back({
-                PlayerInteriorDoorwayRect(node.playerInteriorRoom), -1, 10});
-        }
     } else if (node.type == RunNodeType::BossInterior) {
         interior.archetype = "boss";
         interior.roomSize = bossTuning.interiorRoomSize;
@@ -415,15 +563,15 @@ void ConfigureNode(RunNode& node) {
         interior.roomSize = legacyInteriorRoomSize;
         run.boss = BossFightState{};
     }
-    node.portals.clear();
-    if (node.type != RunNodeType::Boss) {
+    if (node.portals.empty() && node.type != RunNodeType::Boss) {
         RunPortal portal;
-        portal.destination = kInvalidRunNode;
+        portal.destination = node.type == RunNodeType::Shop
+            ? node.shopReturnDestination : kInvalidRunNode;
         portal.direction = PortalDirection::North;
         portal.center = kRunArenaWidth * 0.5f;
         portal.width = rogueliteTuning.portalWidth;
-        portal.active =
-            node.completed || node.type == RunNodeType::Interior;
+        portal.active = node.completed || node.type == RunNodeType::Interior ||
+            node.type == RunNodeType::Shop;
         if ((node.type == RunNodeType::Interior ||
              node.type == RunNodeType::PlayerInterior ||
              node.type == RunNodeType::BossInterior) && !rooms.empty()) {
@@ -454,6 +602,12 @@ void ConfigureNode(RunNode& node) {
         spawners.clear();
     } else if (node.type == RunNodeType::Shop) {
         node.completed = true;
+        // The return portal lives below the shop layout so it remains a
+        // distinct navigation target rather than reading as another offer.
+        for (RunPortal& portal : node.portals)
+            portal.interiorTrigger = {
+                kRunArenaWidth * 0.5f - 36.0f,
+                kRunArenaHeight - 150.0f, 72.0f, 72.0f};
         if (node.shopOffers.empty()) {
             static const UpgradeType upgrades[]{
                 UpgradeType::FireRate, UpgradeType::BombCooldown,
@@ -511,7 +665,10 @@ void ConfigureNode(RunNode& node) {
             }
             node.shopOffers.push_back(weapon);
         }
-        for (RunPortal& portal : node.portals) portal.active = true;
+        for (RunPortal& portal : node.portals) {
+            portal.active = true;
+            portal.armed = false;
+        }
     } else if (node.type == RunNodeType::Interior ||
                node.type == RunNodeType::PlayerInterior ||
                node.type == RunNodeType::BossInterior) {
@@ -522,7 +679,7 @@ void ConfigureNode(RunNode& node) {
     } else {
         if (node.arenaArchetype.empty())
             node.arenaArchetype = ArenaArchetype(node.seed);
-        if (node.waves.empty()) {
+        if (node.waves.empty() && !node.completed) {
             const std::uint32_t waveCount =
                 node.type == RunNodeType::Interior
                     ? rogueliteTuning.interiorWaves
@@ -532,14 +689,18 @@ void ConfigureNode(RunNode& node) {
                     index, 1 + index,
                     DeriveRunSeed(node.seed, 0x57415645ULL, index), false});
         }
-        node.activeWave = 0;
-        node.waveCooldown = 0;
-        CreateWaveSpawners(node, 0);
+        if (!node.completed) {
+            node.activeWave = 0;
+            node.waveCooldown = 0;
+            CreateWaveSpawners(node, 0);
+        }
     }
     RebuildRunArena(node);
     if (!runArena.audioWalls.empty())
         playerY = kRunArenaHeight - 430.0f;
     RebuildGameplayTextBoxes();
+    if (node.type == RunNodeType::Interior)
+        BuildInteriorArenaDestinations(node);
 }
 
 void EnterRunMap() {
@@ -567,10 +728,33 @@ void DebugClearCurrentNode() {
     if (MainMenuActive() || run.mapActive) return;
     RunNode* node = CurrentRunNode();
     if (!node) return;
+    // Debug win resolves the encounter in place: eliminate every active
+    // spawner/enemy and finish every wave before creating the same exits a
+    // normal completion would create.
+    for (Spawner& spawner : spawners) spawner.health = 0;
+    for (Enemy& enemy : enemies) enemy.health = 0;
+    spawners.clear();
+    enemies.clear();
     node->completed = true;
     for (RunWave& wave : node->waves) wave.completed = true;
-    for (RunPortal& portal : node->portals) portal.active = true;
-    EnterRunMap();
+    node->activeWave = static_cast<std::uint32_t>(node->waves.size());
+    node->waveCooldown = 0;
+    if (node->type == RunNodeType::EnemyArena) {
+        BuildArenaChoicePortals(*node);
+        RunNode* current = CurrentRunNode();
+        if (current) RebuildRunArena(*current);
+    } else if (node->type == RunNodeType::Boss) {
+        run.boss.health = 0;
+        run.boss.projectiles.clear();
+        run.status = RunStatus::Won;
+    } else {
+        for (RunPortal& portal : node->portals) {
+            portal.active = true;
+            portal.armed = false;
+        }
+        BuildInteriorArenaDestinations(*node);
+    }
+    RebuildGameplayTextBoxes();
 }
 
 bool RunWall(const Rect& rectangle) {
@@ -616,7 +800,7 @@ void UpdateShopPurchases(float dt) {
         }
         if (!repeatable) offer.purchased = true;
         offer.purchaseTimer = 0;
-        PlaySoundEffect(Sound::HitEnemy);
+        PlaySoundEffect(Sound::PowerUp);
     }
 }
 
@@ -651,9 +835,9 @@ Rect ShopOfferPurchaseArea(std::size_t index) {
 
 const char* UpgradeName(UpgradeType type) {
     switch (type) {
-        case UpgradeType::FireRate: return "SHOT DELAY";
-        case UpgradeType::BombCooldown: return "BOMB DELAY";
-        case UpgradeType::MoveSpeed: return "MOVE TIME";
+        case UpgradeType::FireRate: return "FIRE RATE";
+        case UpgradeType::BombCooldown: return "BOMB RATE";
+        case UpgradeType::MoveSpeed: return "MOVE SPEED";
         case UpgradeType::MaxHealth: return "MAX HEALTH";
         case UpgradeType::ProjectileDamage: return "SHOT DAMAGE";
         case UpgradeType::Invincibility: return "HIT INVINCIBILITY";

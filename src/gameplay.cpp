@@ -205,6 +205,7 @@ void UnlockInteriorPortals() {
         portal.interiorTrigger = InteriorOrganExitTrigger(*node, organRoom);
         node->portals.push_back(portal);
     }
+    BuildInteriorArenaDestinations(*node);
     RebuildGameplayTextBoxes();
 }
 
@@ -227,6 +228,7 @@ bool DamageTextBox(
             MutableEnemyStage(interior.archetype, stat);
         if (stage == 0) return false;
         --stage;
+        PlaySoundEffect(Sound::ValueLowered);
         if (organEdited) *organEdited = true;
         organ.value = DisplayEnemyOrganValue(
             types.at(interior.archetype), stat, stage);
@@ -268,14 +270,18 @@ bool HitText(Projectile& projectile) {
 bool HitShield(const Rect& shot, int damage) {
     for (ShieldBlock& shield : shieldBlocks)
         if (shield.health > 0 && Overlaps(shot, shield.rect)) {
-            shield.health = std::max(0, shield.health - damage);
             RunNode* node = CurrentRunNode();
+            if (node && node->type == RunNodeType::PlayerInterior &&
+                shield.organ >= 0 && node->playerInteriorRoom >= 0 &&
+                shield.organ != node->playerInteriorRoom)
+                return true;
+            shield.health = std::max(0, shield.health - damage);
             if (shield.health == 0 && node &&
                 node->type == RunNodeType::PlayerInterior &&
                 !node->playerInteriorWave &&
-                node->playerInteriorRoom >= 0) {
-                playerInteriorState.brokenDoorways[
-                    node->playerInteriorRoom] = true;
+                shield.organ >= 0) {
+                node->playerInteriorRoom = shield.organ;
+                playerInteriorState.brokenDoorways[shield.organ] = true;
                 SaveMutations();
             }
             PlaySoundEffect(Sound::HitEnemy);
@@ -289,6 +295,8 @@ bool HitSpawner(const Rect& shot, int damage) {
         if (spawner.health > 0 &&
             Overlaps(shot, {spawner.x, spawner.y, 30, 30})) {
             spawner.health -= damage;
+            PlaySoundEffect(
+                spawner.health <= 0 ? Sound::SpawnerDeath : Sound::SpawnerHit);
             return true;
         }
     return false;
@@ -340,11 +348,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
         const float dy = y - std::clamp(
             y, target.y, target.y + target.height);
         if (dx * dx + dy * dy <= radiusSquared) {
-            turret.health -= damage;
-            if (turret.health <= 0) {
-                turret.alive = false;
-                CheckBossInteriorCompletion();
-            }
+            HitBossTurretTarget(target, damage);
         }
     }
     for (Spawner& spawner : spawners) {
@@ -352,10 +356,18 @@ void DetonateBomb(float x, float y, int damage, float radius) {
         const float dx = x - std::clamp(x, rect.x, rect.x + rect.width);
         const float dy = y - std::clamp(y, rect.y, rect.y + rect.height);
         if (spawner.health > 0 &&
-            dx * dx + dy * dy <= radiusSquared)
+            dx * dx + dy * dy <= radiusSquared) {
             spawner.health -= damage;
+            PlaySoundEffect(
+                spawner.health <= 0 ? Sound::SpawnerDeath : Sound::SpawnerHit);
+        }
     }
     for (ShieldBlock& shield : shieldBlocks) {
+        RunNode* node = CurrentRunNode();
+        if (node && node->type == RunNodeType::PlayerInterior &&
+            shield.organ >= 0 && node->playerInteriorRoom >= 0 &&
+            shield.organ != node->playerInteriorRoom)
+            continue;
         const float dx = x - std::clamp(
             x, shield.rect.x, shield.rect.x + shield.rect.width);
         const float dy = y - std::clamp(
@@ -363,13 +375,12 @@ void DetonateBomb(float x, float y, int damage, float radius) {
         if (shield.health > 0 &&
             dx * dx + dy * dy <= radiusSquared) {
             shield.health = std::max(0, shield.health - damage);
-            RunNode* node = CurrentRunNode();
             if (shield.health == 0 && node &&
                 node->type == RunNodeType::PlayerInterior &&
                 !node->playerInteriorWave &&
-                node->playerInteriorRoom >= 0) {
-                playerInteriorState.brokenDoorways[
-                    node->playerInteriorRoom] = true;
+                shield.organ >= 0) {
+                node->playerInteriorRoom = shield.organ;
+                playerInteriorState.brokenDoorways[shield.organ] = true;
                 SaveMutations();
             }
         }
@@ -598,10 +609,14 @@ void FireRail(Enemy& enemy, const EnemyType& type) {
         const Rect probe{
             startX + dx * distance - width * 0.5f,
             startY + dy * distance - width * 0.5f, width, width};
-        if (RunWall(probe) || HitsWall(probe) || HitsShield(probe)) break;
+        if (RunWall(probe) ||
+            (!RunArenaMode() && HitsWall(probe)) ||
+            HitsShield(probe))
+            break;
         railLength = distance;
         if (!hitPlayer && Overlaps(probe, player)) {
-            DamagePlayer(type.contactDamage);
+            DamagePlayer(type.contactDamage + static_cast<int>(
+                EnemyStage(enemy.type, EnemyDifficultyStat::Damage)));
             hitPlayer = true;
         }
     }
@@ -902,7 +917,8 @@ bool FirePlayerRail() {
             const float x = startX + dx * distance;
             const float y = startY + dy * distance;
             const Rect wallProbe{x - 1, y - 1, 2, 2};
-            if (RunWall(wallProbe) || HitsWall(wallProbe)) {
+            if (RunWall(wallProbe) ||
+                (!RunArenaMode() && HitsWall(wallProbe))) {
                 HitRoomWall(wallProbe);
                 break;
             }
@@ -947,6 +963,8 @@ bool FirePlayerRail() {
                         hitProbe,
                         {spawners[index].x, spawners[index].y, 30, 30})) {
                     spawners[index].health -= weapon.damage;
+                    PlaySoundEffect(spawners[index].health <= 0
+                        ? Sound::SpawnerDeath : Sound::SpawnerHit);
                     hitSpawners[index] = true;
                 }
         }
@@ -1176,6 +1194,7 @@ bool UpdateMovementAndPortals(float dt) {
                 {playerX, playerY, kPlayerSize, kPlayerSize},
                 MainMenuPortalRect())) {
             EnterRunNode(run.startNode);
+            PlaySoundEffect(Sound::Teleport);
             return true;
         }
     } else if (RunMode() || debugRoom) {
@@ -1184,25 +1203,27 @@ bool UpdateMovementAndPortals(float dt) {
             if (Overlaps(
                     {playerX, playerY, kPlayerSize, kPlayerSize},
                     PhysicalExitPortalRect())) {
-                EnterRunMap();
+                EnterRunNode(run.currentNode);
                 return true;
             }
         } else if (node)
-            for (const RunPortal& portal : node->portals) {
+            for (RunPortal& portal : node->portals) {
                 if (!portal.active) continue;
                 const Rect trigger =
-                    (node->type == RunNodeType::Interior ||
-                     node->type == RunNodeType::PlayerInterior ||
-                     node->type == RunNodeType::BossInterior)
-                    ? portal.interiorTrigger : PhysicalExitPortalRect();
-                if (Overlaps(
-                        {playerX, playerY, kPlayerSize, kPlayerSize},
-                        trigger)) {
-                    if (portal.destination == kInvalidRunNode)
-                        EnterRunMap();
-                    else
+                    portal.interiorTrigger.width > 0
+                        ? portal.interiorTrigger : PhysicalExitPortalRect();
+                const bool touching = Overlaps(
+                    {playerX, playerY, kPlayerSize, kPlayerSize}, trigger);
+                if (!portal.armed) {
+                    if (!touching) portal.armed = true;
+                    continue;
+                }
+                if (touching) {
+                    if (portal.destination != kInvalidRunNode) {
                         EnterRunNode(portal.destination);
-                    return true;
+                        PlaySoundEffect(Sound::Teleport);
+                        return true;
+                    }
                 }
             }
     }
@@ -1288,9 +1309,10 @@ void UpdateWaveProgress(float dt) {
                     CreateWaveSpawners(*node, node->activeWave);
                 } else {
                     node->completed = true;
-                    for (RunPortal& portal : node->portals)
-                        portal.active = true;
-                    RebuildRunArena(*node);
+                    BuildArenaChoicePortals(*node);
+                    RunNode* current = CurrentRunNode();
+                    if (!current) return;
+                    RebuildRunArena(*current);
                     RebuildGameplayTextBoxes();
                 }
             }
@@ -1310,11 +1332,13 @@ void UpdateWaveProgress(float dt) {
             const Room& completedRoom = rooms[node->playerInteriorRoom];
             for (RunPortal& portal : node->portals) {
                 portal.active = true;
+                portal.armed = false;
                 portal.interiorTrigger = {
                     RoomX(completedRoom) + interior.roomSize * 0.5f - 36.0f,
                     RoomY(completedRoom) + interior.roomSize * 0.5f - 36.0f,
                     72, 72};
             }
+            BuildInteriorArenaDestinations(*node);
             RebuildGameplayTextBoxes();
         }
     }
@@ -1399,6 +1423,7 @@ void UpdatePickups(float dt) {
                 run.autoRocketRemaining = rogueliteTuning.powerupSeconds;
                 run.autoRocketCooldown = 0;
             }
+            PlaySoundEffect(Sound::PowerUp);
         }
     }
 }
@@ -1604,6 +1629,8 @@ void UpdateProjectilesAndBombs(float dt) {
                         projectile.boomerangHitSpawners.end() &&
                     Overlaps(shot, {spawners[index].x, spawners[index].y, 30, 30})) {
                     spawners[index].health -= projectile.damage;
+                    PlaySoundEffect(spawners[index].health <= 0
+                        ? Sound::SpawnerDeath : Sound::SpawnerHit);
                     projectile.boomerangHitSpawners.push_back(
                         static_cast<int>(index));
                 }
@@ -1812,11 +1839,19 @@ void FinalizeFrame(int activeRoom) {
                     if (enemy.type == "charger") {
                         if (enemy.phase != EnemyPhase::Attack)
                             return false;
-                        if (DamagePlayer(type.contactDamage))
+                        if (DamagePlayer(
+                                type.contactDamage + static_cast<int>(
+                                    EnemyStage(
+                                        enemy.type,
+                                        EnemyDifficultyStat::Damage))))
                             BeginRecovery(enemy, type);
                         return false;
                     }
-                    return DamagePlayer(type.contactDamage);
+                    return DamagePlayer(
+                        type.contactDamage + static_cast<int>(
+                            EnemyStage(
+                                enemy.type,
+                                EnemyDifficultyStat::Damage)));
                 }
                 return false;
             }),

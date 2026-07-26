@@ -450,8 +450,8 @@ bool LoadWorldScript(const std::filesystem::path& path) {
     loadedInterior.speedUnit =
         std::max(0.0f, NumberField(lua, -1, "speed_unit", 4.0f));
     lua_getfield(lua, -1, "organs");
-    const std::array<const char*, 4> organNames{
-        {"size", "speed", "health", "burst"}};
+    const std::array<const char*, 6> organNames{
+        {"size", "speed", "health", "burst", "damage", "spawner_health"}};
     if (lua_istable(lua, -1)) {
         for (const char* name : organNames) {
             lua_getfield(lua, -1, name);
@@ -600,7 +600,7 @@ bool LoadWorldScript(const std::filesystem::path& path) {
         !loadedPhrases.count("start_game") ||
         !loadedPhrases.count("spawn_herd_modifier") ||
         !loadedPlayerInteriorScaling ||
-        loadedOrgans.size() != 4 || loadedGlyphCount < 94 ||
+        loadedOrgans.size() != 6 || loadedGlyphCount < 94 ||
         loadedLevelValueWord < 0 || loadedLevelMaps.empty())
         return false;
     words = std::move(loadedWords);

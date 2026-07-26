@@ -171,6 +171,12 @@ void AddSplitVertical(
 
 }  // namespace
 
+bool BuildRoomBloomGraph(
+    std::uint64_t seed, int targetCount, int& spawnRoom,
+    std::vector<int>& targetRooms) {
+    return BuildBloomGraph(seed, targetCount, spawnRoom, targetRooms);
+}
+
 void GenerateRooms(std::uint64_t seed) {
     rooms.clear();
     roomAt.clear();
@@ -210,7 +216,7 @@ void GenerateRooms(std::uint64_t seed) {
     std::vector<int> bloomOrgans;
     bool generated = false;
     for (int attempt = 0; attempt < 256 && !generated; ++attempt)
-        generated = BuildBloomGraph(
+        generated = BuildRoomBloomGraph(
             ConnectionSeed(seed, attempt, static_cast<int>(rooms.size())),
             static_cast<int>(organs.size()), start, bloomOrgans);
     if (generated) {

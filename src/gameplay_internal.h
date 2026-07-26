@@ -60,6 +60,8 @@ void RebuildRunArena(RunNode& node);
 void RebuildGameplayTextBoxes();
 void AppendPortalTextBoxes();
 void UnlockInteriorPortals();
+void BuildArenaChoicePortals(RunNode& node);
+void BuildInteriorArenaDestinations(RunNode& node);
 bool HitText(Projectile& projectile);
 void TriggerMainMenuStart();
 void UpdateMainMenu(float dt);

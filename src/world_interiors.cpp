@@ -28,10 +28,15 @@ void BuildPlayerInteriorWorld(std::uint64_t, int& spawnRoom) {
             rooms.push_back({row, column, row, column, 0});
             roomAt[{row, column}] = index;
         }
-    // Player Internals is a fixed, fully connected 3x3 facility. Unlike
-    // procedural enemy interiors, its entry point must stay recognizable.
-    for (int doorway = 0; doorway < 12; ++doorway)
+    // Every physical doorway exists in the fixed facility. Unbroken ones are
+    // protected by persistent shields; broken doorways remain open on future
+    // visits.
+    for (int doorway = 0; doorway < 12; ++doorway) {
         OpenPlayerInteriorDoorway(doorway);
+        if (!playerInteriorState.brokenDoorways[doorway])
+            shieldBlocks.push_back(
+                {PlayerInteriorDoorwayRect(doorway), doorway, 10});
+    }
     spawnRoom = RoomIndexAt(1, 1);
     std::queue<int> pending;
     rooms[spawnRoom].distance = 0;
@@ -96,56 +101,22 @@ void BuildBossInteriorWorld(
     for (int row = 0; row < static_cast<int>(giant.sprite.size()); ++row)
         for (int column = 0;
              column < static_cast<int>(giant.sprite[row].size()); ++column)
-            if (giant.sprite[row][column].occupied) {
+            if (giant.sprite[row][column].occupied &&
+                BossQuadrantForCell(row, column, midRow, midCol) ==
+                    quadrant) {
                 const int index = static_cast<int>(rooms.size());
                 rooms.push_back({row, column, row, column, 0});
                 roomAt[{row, column}] = index;
             }
-    const int dr[2]{1, 0};
-    const int dc[2]{0, 1};
-    for (int index = 0; index < static_cast<int>(rooms.size()); ++index)
-        for (int direction = 0; direction < 2; ++direction) {
-            const int neighbor = RoomIndexAt(
-                rooms[index].row + dr[direction],
-                rooms[index].column + dc[direction]);
-            if (neighbor < 0) continue;
-            const BossQuadrant first = BossQuadrantForCell(
-                rooms[index].row, rooms[index].column, midRow, midCol);
-            const BossQuadrant second = BossQuadrantForCell(
-                rooms[neighbor].row, rooms[neighbor].column,
-                midRow, midCol);
-            if (first == quadrant && second == quadrant)
-                roomConnections.insert(RoomEdge(index, neighbor));
-        }
     std::vector<int> quadrantRooms;
     for (int index = 0; index < static_cast<int>(rooms.size()); ++index)
-        if (BossQuadrantForCell(
-                rooms[index].row, rooms[index].column, midRow, midCol) ==
-            quadrant)
-            quadrantRooms.push_back(index);
-    spawnRoom = quadrantRooms.empty() ? 0 : quadrantRooms[
-        ConnectionSeed(seed, 0, static_cast<int>(quadrant)) %
-            quadrantRooms.size()];
-    int bestScore = -1;
-    for (int roomIndex : quadrantRooms) {
-        const Room& room = rooms[roomIndex];
-        int neighbors = 0;
-        for (int direction = 0; direction < 4; ++direction) {
-            static constexpr int odr[]{-1, 1, 0, 0};
-            static constexpr int odc[]{0, 0, -1, 1};
-            const int next = RoomIndexAt(
-                room.row + odr[direction], room.column + odc[direction]);
-            if (next >= 0 && RoomsConnected(roomIndex, next)) ++neighbors;
-        }
-        const int edgeScore = 4 - neighbors;
-        if (edgeScore > bestScore ||
-            (edgeScore == bestScore &&
-             ConnectionSeed(seed, roomIndex, 1) <
-                 ConnectionSeed(seed, spawnRoom, 1))) {
-            bestScore = edgeScore;
-            spawnRoom = roomIndex;
-        }
-    }
+        quadrantRooms.push_back(index);
+    for (Room& room : rooms) room.distance = -1;
+    std::vector<int> turretRooms;
+    const int turretCount = bossTuning.burstTurretsPerQuadrant +
+        bossTuning.rocketTurretsPerQuadrant;
+    if (!BuildRoomBloomGraph(seed, turretCount, spawnRoom, turretRooms))
+        spawnRoom = quadrantRooms.empty() ? 0 : quadrantRooms.front();
     std::queue<int> pending;
     std::vector<int> distances(rooms.size(), -1);
     distances[spawnRoom] = 0;

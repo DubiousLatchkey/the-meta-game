@@ -1,0 +1,2043 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Route Choice Balance Lab</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:736px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Route Choice Balance Lab" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Route Choice Balance Lab&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(--background) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: light-dark(rgb(255 255 255), rgb(24 24 24));
+  --foreground: light-dark(rgb(26 28 31), rgb(255 255 255));
+  --card: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --card-foreground: var(--foreground);
+  --popover: light-dark(rgb(255 255 255), rgb(45 45 45));
+  --popover-foreground: var(--foreground);
+  --primary: light-dark(rgb(51 156 255), rgb(131 195 255));
+  --primary-foreground: light-dark(rgb(255 255 255), rgb(13 13 13));
+  --secondary: light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: light-dark(
+    rgb(26 28 31 / 49.4%),
+    rgb(255 255 255 / 49.8%)
+  );
+  --accent: light-dark(rgb(229 242 255), rgb(13 39 63));
+  --accent-foreground: var(--primary);
+  --destructive: light-dark(rgb(226 85 7), rgb(255 133 73));
+  --border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%));
+  --input: light-dark(
+    rgb(26 28 31 / 11.8%),
+    color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+  );
+  --ring: light-dark(rgb(51 156 255), rgb(131 195 255 / 76%));
+  --font-size-base: 14px;
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: 12.5px;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+  --color-background-primary: var(--background);
+  --color-text-primary: var(--foreground);
+  --color-border-secondary: var(--border);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--viz-font-weight-medium);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+    [aria-pressed=&quot;true&quot;],
+    [aria-selected=&quot;true&quot;],
+    .is-selected
+  ) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;route-choice-balance-lab&quot;&gt;
+  &lt;style&gt;
+    #route-choice-balance-lab {
+      color: var(--foreground);
+      width: 100%;
+    }
+    #route-choice-balance-lab .rbl-section {
+      margin-top: 18px;
+    }
+    #route-choice-balance-lab .rbl-control-group {
+      margin-top: 12px;
+    }
+    #route-choice-balance-lab .rbl-range {
+      min-width: min(210px, 100%);
+      flex: 1 1 210px;
+    }
+    #route-choice-balance-lab .rbl-chart {
+      width: 100%;
+      height: auto;
+      display: block;
+      overflow: visible;
+    }
+    #route-choice-balance-lab .rbl-chart text {
+      fill: var(--foreground);
+      font-weight: 400;
+    }
+    #route-choice-balance-lab .rbl-chart .muted {
+      fill: var(--muted-foreground);
+    }
+    #route-choice-balance-lab .rbl-chart .grid {
+      stroke: var(--border);
+      stroke-width: 1;
+    }
+    #route-choice-balance-lab .rbl-chart .zero {
+      stroke: var(--foreground);
+      stroke-width: 1.5;
+    }
+    #route-choice-balance-lab .rbl-chart .arena {
+      stroke: var(--viz-series-1);
+      fill: var(--viz-series-1);
+    }
+    #route-choice-balance-lab .rbl-chart .interior {
+      stroke: var(--viz-series-2);
+      fill: var(--viz-series-2);
+    }
+    #route-choice-balance-lab .rbl-chart .whisker {
+      stroke-width: 4;
+      stroke-linecap: round;
+      fill: none;
+    }
+    #route-choice-balance-lab .rbl-chart .cap {
+      stroke-width: 1.5;
+    }
+    #route-choice-balance-lab .rbl-chart .mean {
+      stroke: var(--background);
+      stroke-width: 2;
+    }
+    #route-choice-balance-lab details {
+      margin-top: 14px;
+    }
+    #route-choice-balance-lab summary {
+      cursor: pointer;
+      color: var(--foreground);
+    }
+    #route-choice-balance-lab .rbl-legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    #route-choice-balance-lab .rbl-swatch {
+      width: 12px;
+      height: 4px;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    #route-choice-balance-lab .rbl-swatch.arena {
+      background: var(--viz-series-1);
+    }
+    #route-choice-balance-lab .rbl-swatch.interior {
+      background: var(--viz-series-2);
+    }
+    #route-choice-balance-lab .rbl-status {
+      min-height: 20px;
+    }
+    @media (max-width: 520px) {
+      #route-choice-balance-lab .rbl-chart-label {
+        display: none;
+      }
+    }
+  &lt;/style&gt;
+
+  &lt;div class=&quot;viz-controls&quot;&gt;
+    &lt;label class=&quot;form-label&quot;&gt;Arena poison
+      &lt;select id=&quot;rbl-arena-poison&quot; class=&quot;form-select&quot;&gt;
+        &lt;option value=&quot;random&quot;&gt;Random offered stat&lt;/option&gt;
+        &lt;option value=&quot;size&quot;&gt;Size&lt;/option&gt;
+        &lt;option value=&quot;speed&quot;&gt;Speed&lt;/option&gt;
+        &lt;option value=&quot;health&quot;&gt;Health&lt;/option&gt;
+        &lt;option value=&quot;burst&quot;&gt;Spawn herd&lt;/option&gt;
+      &lt;/select&gt;
+    &lt;/label&gt;
+    &lt;label class=&quot;form-label&quot;&gt;Interior enemy
+      &lt;select id=&quot;rbl-interior-enemy&quot; class=&quot;form-select&quot;&gt;
+        &lt;option value=&quot;random&quot;&gt;Random offered enemy&lt;/option&gt;
+        &lt;option value=&quot;circle&quot;&gt;Circle&lt;/option&gt;
+        &lt;option value=&quot;triangle&quot;&gt;Triangle&lt;/option&gt;
+        &lt;option value=&quot;charger&quot;&gt;Charger&lt;/option&gt;
+        &lt;option value=&quot;shooter&quot;&gt;Shooter&lt;/option&gt;
+      &lt;/select&gt;
+    &lt;/label&gt;
+    &lt;label class=&quot;form-label&quot;&gt;Spending
+      &lt;select id=&quot;rbl-spend-strategy&quot; class=&quot;form-select&quot;&gt;
+        &lt;option value=&quot;smart&quot;&gt;Best combat offer&lt;/option&gt;
+        &lt;option value=&quot;damage&quot;&gt;Damage first&lt;/option&gt;
+        &lt;option value=&quot;survival&quot;&gt;Survival first&lt;/option&gt;
+        &lt;option value=&quot;random&quot;&gt;Random offer&lt;/option&gt;
+      &lt;/select&gt;
+    &lt;/label&gt;
+    &lt;label class=&quot;form-label&quot;&gt;Samples
+      &lt;select id=&quot;rbl-samples&quot; class=&quot;form-select&quot;&gt;
+        &lt;option value=&quot;1500&quot;&gt;1,500&lt;/option&gt;
+        &lt;option value=&quot;4000&quot; selected&gt;4,000&lt;/option&gt;
+        &lt;option value=&quot;10000&quot;&gt;10,000&lt;/option&gt;
+      &lt;/select&gt;
+    &lt;/label&gt;
+    &lt;button id=&quot;rbl-run&quot; type=&quot;button&quot; class=&quot;btn btn-primary&quot;&gt;
+      &lt;i data-lucide=&quot;refresh-cw&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+      Resimulate
+    &lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;viz-controls rbl-control-group&quot;&gt;
+    &lt;div class=&quot;form-check form-switch&quot;&gt;
+      &lt;input id=&quot;rbl-global-poison&quot; class=&quot;form-check-input&quot; type=&quot;checkbox&quot; checked&gt;
+      &lt;label class=&quot;form-check-label&quot; for=&quot;rbl-global-poison&quot;&gt;Arena poison affects all four enemies&lt;/label&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;form-check form-switch&quot;&gt;
+      &lt;input id=&quot;rbl-iframe-cap&quot; class=&quot;form-check-input&quot; type=&quot;checkbox&quot; checked&gt;
+      &lt;label class=&quot;form-check-label&quot; for=&quot;rbl-iframe-cap&quot;&gt;Apply player invincibility DPS cap&lt;/label&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;details open&gt;
+    &lt;summary&gt;Economy and EV weights&lt;/summary&gt;
+    &lt;div class=&quot;viz-controls rbl-control-group&quot;&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Shop price: &lt;span id=&quot;rbl-shop-price-value&quot;&gt;5 coins&lt;/span&gt;
+        &lt;input id=&quot;rbl-shop-price&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;1&quot; max=&quot;20&quot; step=&quot;1&quot; value=&quot;5&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Coin spend efficiency: &lt;span id=&quot;rbl-spend-efficiency-value&quot;&gt;80%&lt;/span&gt;
+        &lt;input id=&quot;rbl-spend-efficiency&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; step=&quot;5&quot; value=&quot;80&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Hard arena chance: &lt;span id=&quot;rbl-hard-chance-value&quot;&gt;25%&lt;/span&gt;
+        &lt;input id=&quot;rbl-hard-chance&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; step=&quot;5&quot; value=&quot;25&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Arena waves: &lt;span id=&quot;rbl-waves-value&quot;&gt;3&lt;/span&gt;
+        &lt;input id=&quot;rbl-waves&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;1&quot; max=&quot;8&quot; step=&quot;1&quot; value=&quot;3&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Persistence horizon: &lt;span id=&quot;rbl-horizon-value&quot;&gt;3 fights&lt;/span&gt;
+        &lt;input id=&quot;rbl-horizon&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;1&quot; max=&quot;8&quot; step=&quot;1&quot; value=&quot;3&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Extra-arena risk weight: &lt;span id=&quot;rbl-risk-weight-value&quot;&gt;50%&lt;/span&gt;
+        &lt;input id=&quot;rbl-risk-weight&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;150&quot; step=&quot;5&quot; value=&quot;50&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Death cost: &lt;span id=&quot;rbl-death-cost-value&quot;&gt;100 EV&lt;/span&gt;
+        &lt;input id=&quot;rbl-death-cost&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;500&quot; step=&quot;10&quot; value=&quot;100&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Interior traversal damage: &lt;span id=&quot;rbl-interior-damage-value&quot;&gt;0.10 HP&lt;/span&gt;
+        &lt;input id=&quot;rbl-interior-damage&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;2&quot; step=&quot;0.05&quot; value=&quot;0.1&quot;&gt;
+      &lt;/label&gt;
+    &lt;/div&gt;
+  &lt;/details&gt;
+
+  &lt;details&gt;
+    &lt;summary&gt;Early, mid, and late fuzz&lt;/summary&gt;
+    &lt;div class=&quot;viz-controls rbl-control-group&quot;&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Fuzz width: &lt;span id=&quot;rbl-fuzz-value&quot;&gt;40%&lt;/span&gt;
+        &lt;input id=&quot;rbl-fuzz&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; step=&quot;5&quot; value=&quot;40&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Early enemy upgrades: &lt;span id=&quot;rbl-early-enemy-value&quot;&gt;2&lt;/span&gt;
+        &lt;input id=&quot;rbl-early-enemy&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;16&quot; step=&quot;1&quot; value=&quot;2&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Early player upgrades: &lt;span id=&quot;rbl-early-player-value&quot;&gt;1&lt;/span&gt;
+        &lt;input id=&quot;rbl-early-player&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;20&quot; step=&quot;1&quot; value=&quot;1&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Early Internals removed: &lt;span id=&quot;rbl-early-internals-value&quot;&gt;0&lt;/span&gt;
+        &lt;input id=&quot;rbl-early-internals&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;8&quot; step=&quot;1&quot; value=&quot;0&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Mid enemy upgrades: &lt;span id=&quot;rbl-mid-enemy-value&quot;&gt;5&lt;/span&gt;
+        &lt;input id=&quot;rbl-mid-enemy&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;20&quot; step=&quot;1&quot; value=&quot;5&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Mid player upgrades: &lt;span id=&quot;rbl-mid-player-value&quot;&gt;4&lt;/span&gt;
+        &lt;input id=&quot;rbl-mid-player&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;24&quot; step=&quot;1&quot; value=&quot;4&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Mid Internals removed: &lt;span id=&quot;rbl-mid-internals-value&quot;&gt;2&lt;/span&gt;
+        &lt;input id=&quot;rbl-mid-internals&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;8&quot; step=&quot;1&quot; value=&quot;2&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Late enemy upgrades: &lt;span id=&quot;rbl-late-enemy-value&quot;&gt;9&lt;/span&gt;
+        &lt;input id=&quot;rbl-late-enemy&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;28&quot; step=&quot;1&quot; value=&quot;9&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Late player upgrades: &lt;span id=&quot;rbl-late-player-value&quot;&gt;8&lt;/span&gt;
+        &lt;input id=&quot;rbl-late-player&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;30&quot; step=&quot;1&quot; value=&quot;8&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Late Internals removed: &lt;span id=&quot;rbl-late-internals-value&quot;&gt;5&lt;/span&gt;
+        &lt;input id=&quot;rbl-late-internals&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;8&quot; step=&quot;1&quot; value=&quot;5&quot;&gt;
+      &lt;/label&gt;
+    &lt;/div&gt;
+  &lt;/details&gt;
+
+  &lt;details&gt;
+    &lt;summary&gt;Threat and damage model&lt;/summary&gt;
+    &lt;div class=&quot;viz-controls rbl-control-group&quot;&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Contact opportunity rate: &lt;span id=&quot;rbl-contact-rate-value&quot;&gt;0.08/s&lt;/span&gt;
+        &lt;input id=&quot;rbl-contact-rate&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0.01&quot; max=&quot;0.5&quot; step=&quot;0.01&quot; value=&quot;0.08&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Charger hit chance: &lt;span id=&quot;rbl-charger-accuracy-value&quot;&gt;22%&lt;/span&gt;
+        &lt;input id=&quot;rbl-charger-accuracy&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; step=&quot;2&quot; value=&quot;22&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Shooter hit chance: &lt;span id=&quot;rbl-shooter-accuracy-value&quot;&gt;25%&lt;/span&gt;
+        &lt;input id=&quot;rbl-shooter-accuracy&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;100&quot; step=&quot;2&quot; value=&quot;25&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Burst utilization: &lt;span id=&quot;rbl-burst-util-value&quot;&gt;40%&lt;/span&gt;
+        &lt;input id=&quot;rbl-burst-util&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;10&quot; max=&quot;100&quot; step=&quot;5&quot; value=&quot;40&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Player aim efficiency: &lt;span id=&quot;rbl-aim-value&quot;&gt;75%&lt;/span&gt;
+        &lt;input id=&quot;rbl-aim&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;25&quot; max=&quot;100&quot; step=&quot;5&quot; value=&quot;75&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Explosion target multiplier: &lt;span id=&quot;rbl-explosion-value&quot;&gt;1.40×&lt;/span&gt;
+        &lt;input id=&quot;rbl-explosion&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;1&quot; max=&quot;3&quot; step=&quot;0.1&quot; value=&quot;1.4&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Bursts before spawner dies: &lt;span id=&quot;rbl-bursts-value&quot;&gt;2.0&lt;/span&gt;
+        &lt;input id=&quot;rbl-bursts&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;0.5&quot; max=&quot;6&quot; step=&quot;0.25&quot; value=&quot;2&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Combat uptime: &lt;span id=&quot;rbl-uptime-value&quot;&gt;70%&lt;/span&gt;
+        &lt;input id=&quot;rbl-uptime&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;25&quot; max=&quot;100&quot; step=&quot;5&quot; value=&quot;70&quot;&gt;
+      &lt;/label&gt;
+      &lt;label class=&quot;form-label rbl-range&quot;&gt;
+        Arena threat exposure: &lt;span id=&quot;rbl-exposure-value&quot;&gt;18%&lt;/span&gt;
+        &lt;input id=&quot;rbl-exposure&quot; class=&quot;form-range&quot; type=&quot;range&quot; min=&quot;1&quot; max=&quot;100&quot; step=&quot;1&quot; value=&quot;18&quot;&gt;
+      &lt;/label&gt;
+    &lt;/div&gt;
+  &lt;/details&gt;
+
+  &lt;div id=&quot;rbl-recommendations&quot; class=&quot;viz-grid rbl-section&quot; aria-live=&quot;polite&quot;&gt;&lt;/div&gt;
+
+  &lt;div class=&quot;rbl-section&quot;&gt;
+    &lt;div class=&quot;rbl-legend text-small&quot;&gt;
+      &lt;span&gt;&lt;span class=&quot;rbl-swatch arena&quot;&gt;&lt;/span&gt;Arena&lt;/span&gt;
+      &lt;span&gt;&lt;span class=&quot;rbl-swatch interior&quot;&gt;&lt;/span&gt;Enemy interior&lt;/span&gt;
+      &lt;span class=&quot;text-muted&quot;&gt;Dot = mean EV; line = 10th–90th percentile&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;svg id=&quot;rbl-chart&quot; class=&quot;rbl-chart&quot; viewBox=&quot;0 0 720 292&quot; role=&quot;img&quot; aria-labelledby=&quot;rbl-chart-title rbl-chart-desc&quot;&gt;
+      &lt;title id=&quot;rbl-chart-title&quot;&gt;Route choice expected value by game phase&lt;/title&gt;
+      &lt;desc id=&quot;rbl-chart-desc&quot;&gt;Simulation has not run yet.&lt;/desc&gt;
+    &lt;/svg&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;table-responsive rbl-section&quot;&gt;
+    &lt;table class=&quot;table table-sm&quot;&gt;
+      &lt;thead&gt;
+        &lt;tr&gt;
+          &lt;th&gt;Phase&lt;/th&gt;
+          &lt;th&gt;Choice&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;Enemy HP&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;Enemy eff. DPS&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;Player HP&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;Player eff. DPS&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;Coins&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;Damage / survival&lt;/th&gt;
+          &lt;th class=&quot;text-end&quot;&gt;EV&lt;/th&gt;
+        &lt;/tr&gt;
+      &lt;/thead&gt;
+      &lt;tbody id=&quot;rbl-table-body&quot;&gt;&lt;/tbody&gt;
+    &lt;/table&gt;
+  &lt;/div&gt;
+  &lt;div id=&quot;rbl-status&quot; class=&quot;text-small text-muted rbl-status&quot; aria-live=&quot;polite&quot;&gt;&lt;/div&gt;
+
+  &lt;script&gt;
+    (() =&gt; {
+      const root = document.getElementById(&#x27;route-choice-balance-lab&#x27;);
+      const byId = id =&gt; root.querySelector(&#x27;#&#x27; + id);
+      const enemyOrder = [&#x27;circle&#x27;, &#x27;triangle&#x27;, &#x27;charger&#x27;, &#x27;shooter&#x27;];
+      const statOrder = [&#x27;size&#x27;, &#x27;speed&#x27;, &#x27;health&#x27;, &#x27;burst&#x27;];
+      const enemies = {
+        circle:   { hp: 3, speed: 3, size: 10, burst: 2, reward: 2, attack: &#x27;contact&#x27; },
+        triangle: { hp: 1, speed: 5, size: 4,  burst: 5, reward: 1, attack: &#x27;contact&#x27; },
+        charger:  { hp: 2, speed: 5, size: 4,  burst: 4, reward: 2, attack: &#x27;charger&#x27; },
+        shooter:  { hp: 1, speed: 4, size: 4,  burst: 1, reward: 3, attack: &#x27;shooter&#x27; }
+      };
+      const weapons = {
+        standard: { cadence: 1 / 3, scale: 1, damage: 1, kind: &#x27;primary&#x27; },
+        railgun: { cadence: 1, scale: 6, damage: 2, kind: &#x27;primary&#x27;, accuracy: 0.9 },
+        boomerang: { cadence: 0.8, scale: 2, damage: 1, kind: &#x27;primary&#x27;, returnFactor: 1.55 },
+        bomb: { cadence: 3, scale: 4, damage: 2, kind: &#x27;secondary&#x27;, explosive: true },
+        contact_bomb: { cadence: 3, scale: 4, damage: 2, kind: &#x27;secondary&#x27;, explosive: true },
+        homing_rocket: { cadence: 2.5, scale: 3.5, damage: 2, kind: &#x27;secondary&#x27;, explosive: true, homing: true },
+        auto_rocket: { cadence: 1.5, scale: 2, damage: 2, kind: &#x27;auto&#x27;, explosive: true, homing: true }
+      };
+      const phaseNames = [&#x27;Early&#x27;, &#x27;Mid&#x27;, &#x27;Late&#x27;];
+      let seedCounter = 918273;
+
+      function value(id) {
+        const element = byId(id);
+        return element.type === &#x27;checkbox&#x27; ? element.checked :
+          element.tagName === &#x27;SELECT&#x27; ? element.value : Number(element.value);
+      }
+
+      function config() {
+        return {
+          arenaPoison: value(&#x27;rbl-arena-poison&#x27;),
+          interiorEnemy: value(&#x27;rbl-interior-enemy&#x27;),
+          spendStrategy: value(&#x27;rbl-spend-strategy&#x27;),
+          samples: value(&#x27;rbl-samples&#x27;),
+          globalPoison: value(&#x27;rbl-global-poison&#x27;),
+          iframeCap: value(&#x27;rbl-iframe-cap&#x27;),
+          shopPrice: value(&#x27;rbl-shop-price&#x27;),
+          spendEfficiency: value(&#x27;rbl-spend-efficiency&#x27;) / 100,
+          hardChance: value(&#x27;rbl-hard-chance&#x27;) / 100,
+          waves: value(&#x27;rbl-waves&#x27;),
+          horizon: value(&#x27;rbl-horizon&#x27;),
+          riskWeight: value(&#x27;rbl-risk-weight&#x27;) / 100,
+          deathCost: value(&#x27;rbl-death-cost&#x27;),
+          interiorDamage: value(&#x27;rbl-interior-damage&#x27;),
+          fuzz: value(&#x27;rbl-fuzz&#x27;) / 100,
+          enemyMeans: [
+            value(&#x27;rbl-early-enemy&#x27;), value(&#x27;rbl-mid-enemy&#x27;), value(&#x27;rbl-late-enemy&#x27;)
+          ],
+          playerMeans: [
+            value(&#x27;rbl-early-player&#x27;), value(&#x27;rbl-mid-player&#x27;), value(&#x27;rbl-late-player&#x27;)
+          ],
+          internalMeans: [
+            value(&#x27;rbl-early-internals&#x27;), value(&#x27;rbl-mid-internals&#x27;), value(&#x27;rbl-late-internals&#x27;)
+          ],
+          contactRate: value(&#x27;rbl-contact-rate&#x27;),
+          chargerAccuracy: value(&#x27;rbl-charger-accuracy&#x27;) / 100,
+          shooterAccuracy: value(&#x27;rbl-shooter-accuracy&#x27;) / 100,
+          burstUtil: value(&#x27;rbl-burst-util&#x27;) / 100,
+          aim: value(&#x27;rbl-aim&#x27;) / 100,
+          explosion: value(&#x27;rbl-explosion&#x27;),
+          bursts: value(&#x27;rbl-bursts&#x27;),
+          uptime: value(&#x27;rbl-uptime&#x27;) / 100,
+          exposure: value(&#x27;rbl-exposure&#x27;) / 100
+        };
+      }
+
+      function rngFactory(seed) {
+        let state = seed &gt;&gt;&gt; 0;
+        return () =&gt; {
+          state += 0x6D2B79F5;
+          let t = state;
+          t = Math.imul(t ^ (t &gt;&gt;&gt; 15), t | 1);
+          t ^= t + Math.imul(t ^ (t &gt;&gt;&gt; 7), t | 61);
+          return ((t ^ (t &gt;&gt;&gt; 14)) &gt;&gt;&gt; 0) / 4294967296;
+        };
+      }
+
+      function randomInt(rng, max) {
+        return Math.floor(rng() * Math.max(1, max));
+      }
+
+      function fuzzedCount(rng, mean, fuzz, max) {
+        const radius = Math.ceil(mean * fuzz);
+        return Math.max(0, Math.min(max,
+          Math.round(mean + (rng() * 2 - 1) * radius)));
+      }
+
+      function blankStages() {
+        const result = {};
+        enemyOrder.forEach(enemy =&gt; {
+          result[enemy] = { size: 0, speed: 0, health: 0, burst: 0 };
+        });
+        return result;
+      }
+
+      function cloneStages(source) {
+        const result = {};
+        enemyOrder.forEach(enemy =&gt; {
+          result[enemy] = { ...source[enemy] };
+        });
+        return result;
+      }
+
+      function generateStages(rng, total, phaseIndex) {
+        const stages = blankStages();
+        for (let i = 0; i &lt; total; i++) {
+          const stat = statOrder[randomInt(rng, statOrder.length)];
+          enemyOrder.forEach(enemy =&gt; stages[enemy][stat]++);
+        }
+        const priorInteriorMean = [0, 1, 2][phaseIndex];
+        const resets = fuzzedCount(rng, priorInteriorMean, 0.75, 5);
+        for (let i = 0; i &lt; resets; i++) {
+          const enemy = enemyOrder[randomInt(rng, enemyOrder.length)];
+          statOrder.forEach(stat =&gt; stages[enemy][stat] = 0);
+        }
+        return stages;
+      }
+
+      function blankUpgrades() {
+        return { hp: 0, move: 0, fire: 0, damage: 0, bomb: 0, inv: 0 };
+      }
+
+      function generateUpgrades(rng, total) {
+        const upgrades = blankUpgrades();
+        const keys = Object.keys(upgrades);
+        for (let i = 0; i &lt; total; i++) upgrades[keys[randomInt(rng, keys.length)]]++;
+        return upgrades;
+      }
+
+      function generateInternals(rng, total) {
+        const internals = new Array(8).fill(false);
+        const choices = [0, 1, 2, 3, 4, 5, 6, 7];
+        for (let i = choices.length - 1; i &gt; 0; i--) {
+          const j = randomInt(rng, i + 1);
+          [choices[i], choices[j]] = [choices[j], choices[i]];
+        }
+        choices.slice(0, Math.min(8, total)).forEach(index =&gt; internals[index] = true);
+        return internals;
+      }
+
+      function chooseLoadout(rng, phaseIndex) {
+        const primaryRoll = rng();
+        const secondaryRoll = rng();
+        const primary = phaseIndex === 0
+          ? (primaryRoll &lt; 0.8 ? &#x27;standard&#x27; : primaryRoll &lt; 0.9 ? &#x27;boomerang&#x27; : &#x27;railgun&#x27;)
+          : phaseIndex === 1
+            ? (primaryRoll &lt; 0.48 ? &#x27;standard&#x27; : primaryRoll &lt; 0.74 ? &#x27;boomerang&#x27; : &#x27;railgun&#x27;)
+            : (primaryRoll &lt; 0.3 ? &#x27;standard&#x27; : primaryRoll &lt; 0.62 ? &#x27;boomerang&#x27; : &#x27;railgun&#x27;);
+        const secondary = phaseIndex === 0
+          ? (secondaryRoll &lt; 0.82 ? &#x27;bomb&#x27; : secondaryRoll &lt; 0.91 ? &#x27;contact_bomb&#x27; : &#x27;homing_rocket&#x27;)
+          : phaseIndex === 1
+            ? (secondaryRoll &lt; 0.55 ? &#x27;bomb&#x27; : secondaryRoll &lt; 0.75 ? &#x27;contact_bomb&#x27; : &#x27;homing_rocket&#x27;)
+            : (secondaryRoll &lt; 0.38 ? &#x27;bomb&#x27; : secondaryRoll &lt; 0.62 ? &#x27;contact_bomb&#x27; : &#x27;homing_rocket&#x27;);
+        return { primary, secondary };
+      }
+
+      function weaponDps(id, upgrades, internals, cfg) {
+        const base = weapons[id];
+        let cadence = Math.max(0.05,
+          base.cadence - 0.0125 * base.scale * upgrades.fire);
+        if (base.kind === &#x27;secondary&#x27;) {
+          cadence = Math.max(0.05,
+            cadence - 0.2 * base.scale * upgrades.bomb);
+        }
+        if (id === &#x27;auto_rocket&#x27; &amp;&amp; internals[3]) cadence = 1;
+        const damage = base.damage + upgrades.damage;
+        let count = 1;
+        if (internals[1]) count += 1;
+        if (internals[7]) count += 1;
+        const projectiles = internals[6] ? 2 : 1;
+        let efficiency = cfg.aim;
+        if (base.homing || internals[2]) efficiency = Math.min(1, efficiency + 0.2);
+        if (base.accuracy) efficiency *= base.accuracy;
+        if (base.returnFactor) efficiency *= base.returnFactor;
+        if (base.explosive) efficiency *= cfg.explosion;
+        return damage * count * projectiles * efficiency / cadence;
+      }
+
+      function playerMetrics(upgrades, internals, loadout, cfg) {
+        let primary;
+        if (internals[4]) {
+          primary = weaponDps(&#x27;standard&#x27;, upgrades, internals, cfg) +
+            weaponDps(&#x27;boomerang&#x27;, upgrades, internals, cfg) +
+            weaponDps(&#x27;railgun&#x27;, upgrades, internals, cfg);
+        } else {
+          primary = weaponDps(loadout.primary, upgrades, internals, cfg);
+        }
+        let secondary;
+        if (internals[5]) {
+          secondary = weaponDps(&#x27;bomb&#x27;, upgrades, internals, cfg) +
+            weaponDps(&#x27;contact_bomb&#x27;, upgrades, internals, cfg) +
+            weaponDps(&#x27;homing_rocket&#x27;, upgrades, internals, cfg);
+        } else {
+          secondary = weaponDps(loadout.secondary, upgrades, internals, cfg);
+        }
+        const auto = internals[3] ? weaponDps(&#x27;auto_rocket&#x27;, upgrades, internals, cfg) : 0;
+        const hp = 3 + upgrades.hp;
+        const moveFactor = 1 + upgrades.move * 0.025;
+        const invincibility = Math.min(5, 0.5 + upgrades.inv * 0.1);
+        const invFactor = 1 + upgrades.inv * 0.04;
+        const regenFactor = internals[0] ? 1.18 : 1;
+        return {
+          hp,
+          effectiveHp: hp * moveFactor * invFactor * regenFactor,
+          invincibility,
+          dps: primary + secondary + auto
+        };
+      }
+
+      function enemyMetrics(stages, player, cfg) {
+        let hp = 0;
+        let rawDps = 0;
+        enemyOrder.forEach(id =&gt; {
+          const base = enemies[id];
+          const stage = stages[id];
+          const enemyHp = base.hp + stage.health;
+          const speedRatio = (base.speed + stage.speed) / base.speed;
+          const sizeRatio = (base.size + stage.size) / base.size;
+          const burst = base.burst + stage.burst;
+          let attack;
+          if (base.attack === &#x27;contact&#x27;) {
+            attack = cfg.contactRate *
+              Math.pow(speedRatio, 0.9) * Math.pow(sizeRatio, 0.65);
+          } else if (base.attack === &#x27;charger&#x27;) {
+            attack = cfg.chargerAccuracy / (0.5 + 375 / 600 + 1) *
+              Math.pow(speedRatio, 0.35) * Math.pow(sizeRatio, 0.4);
+          } else {
+            attack = cfg.shooterAccuracy / (1 + 1.5) *
+              Math.pow(speedRatio, 0.15);
+          }
+          hp += enemyHp;
+          rawDps += attack * burst * cfg.burstUtil;
+        });
+        hp /= enemyOrder.length;
+        rawDps /= enemyOrder.length;
+        const dps = cfg.iframeCap
+          ? Math.min(rawDps, 1 / Math.max(0.05, player.invincibility))
+          : rawDps;
+        return { hp, dps, rawDps };
+      }
+
+      function combatIndex(player, enemy) {
+        return (player.dps * player.effectiveHp) /
+          Math.max(0.0001, enemy.hp * enemy.dps);
+      }
+
+      function addArenaPoison(stages, arenaEnemy, cfg, rng) {
+        const result = cloneStages(stages);
+        const stat = cfg.arenaPoison === &#x27;random&#x27;
+          ? statOrder[randomInt(rng, statOrder.length)] : cfg.arenaPoison;
+        const targets = cfg.globalPoison ? enemyOrder : [arenaEnemy];
+        targets.forEach(enemy =&gt; result[enemy][stat]++);
+        return result;
+      }
+
+      function resetInteriorEnemy(stages, targetEnemy) {
+        const result = cloneStages(stages);
+        statOrder.forEach(stat =&gt; result[targetEnemy][stat] = 0);
+        return result;
+      }
+
+      function arenaComposition(rng, arenaEnemy, hard, waves) {
+        const spawners = [];
+        let spawnerHp = 0;
+        for (let wave = 0; wave &lt; waves; wave++) {
+          const count = Math.max(2, 1 + wave) + (hard ? 1 : 0);
+          for (let i = 0; i &lt; count; i++) {
+            let type = arenaEnemy;
+            if (i &gt; 0) {
+              const alternatives = enemyOrder.filter(id =&gt; id !== arenaEnemy);
+              type = alternatives[randomInt(rng, alternatives.length)];
+            }
+            spawners.push(type);
+            spawnerHp += 3 + wave;
+          }
+        }
+        const coins = spawners.reduce((sum, id) =&gt; sum + enemies[id].reward, 0);
+        return { spawners, spawnerHp, coins };
+      }
+
+      function upgradeGain(rng, upgrades, count, strategy, before, internals, loadout, cfg) {
+        const result = { ...upgrades };
+        const keys = [&#x27;hp&#x27;, &#x27;move&#x27;, &#x27;fire&#x27;, &#x27;damage&#x27;, &#x27;bomb&#x27;, &#x27;inv&#x27;];
+        for (let purchase = 0; purchase &lt; count; purchase++) {
+          let key;
+          if (strategy === &#x27;random&#x27;) {
+            key = keys[randomInt(rng, keys.length)];
+          } else if (strategy === &#x27;damage&#x27;) {
+            key = rng() &lt; 0.62 ? &#x27;damage&#x27; : rng() &lt; 0.7 ? &#x27;fire&#x27; : &#x27;bomb&#x27;;
+          } else if (strategy === &#x27;survival&#x27;) {
+            key = rng() &lt; 0.5 ? &#x27;hp&#x27; : rng() &lt; 0.7 ? &#x27;inv&#x27; : &#x27;move&#x27;;
+          } else {
+            let bestScore = -Infinity;
+            keys.forEach(candidate =&gt; {
+              const test = { ...result };
+              test[candidate]++;
+              const metrics = playerMetrics(test, internals, loadout, cfg);
+              const score = (metrics.dps / before.dps) *
+                (metrics.effectiveHp / before.effectiveHp);
+              if (score &gt; bestScore) {
+                bestScore = score;
+                key = candidate;
+              }
+            });
+          }
+          result[key]++;
+        }
+        return result;
+      }
+
+      function arenaDamage(composition, stages, player, cfg) {
+        const perSpawnerEnemyHp = composition.spawners.reduce((sum, id) =&gt; {
+          const base = enemies[id];
+          const stage = stages[id];
+          const burst = base.burst + stage.burst;
+          return sum + cfg.bursts * burst * (base.hp + stage.health);
+        }, 0);
+        const clearTime = (composition.spawnerHp + perSpawnerEnemyHp) /
+          Math.max(0.1, player.dps * cfg.uptime);
+        const averageConcurrentSpawners =
+          Math.max(1, composition.spawners.length / cfg.waves * 0.7);
+        const pressure = enemyMetrics(stages, player, cfg).dps *
+          averageConcurrentSpawners;
+        return pressure * clearTime * cfg.exposure;
+      }
+
+      function survivalChance(expectedDamage, hp) {
+        const maximumHits = Math.max(0, Math.ceil(hp) - 1);
+        let term = Math.exp(-Math.max(0, expectedDamage));
+        let cumulative = term;
+        for (let hits = 1; hits &lt;= maximumHits; hits++) {
+          term *= expectedDamage / hits;
+          cumulative += term;
+        }
+        return Math.max(0, Math.min(1, cumulative));
+      }
+
+      function quantile(sorted, q) {
+        if (!sorted.length) return 0;
+        const index = (sorted.length - 1) * q;
+        const lower = Math.floor(index);
+        const fraction = index - lower;
+        return sorted[lower] * (1 - fraction) +
+          sorted[Math.min(sorted.length - 1, lower + 1)] * fraction;
+      }
+
+      function summarize(samples) {
+        const fields = [&#x27;ev&#x27;, &#x27;enemyHp&#x27;, &#x27;enemyDps&#x27;, &#x27;playerHp&#x27;, &#x27;playerDps&#x27;,
+          &#x27;coins&#x27;, &#x27;damage&#x27;, &#x27;survival&#x27;, &#x27;enemyHpDelta&#x27;, &#x27;enemyDpsDelta&#x27;,
+          &#x27;playerHpDelta&#x27;, &#x27;playerDpsDelta&#x27;, &#x27;marginDelta&#x27;];
+        const result = {};
+        fields.forEach(field =&gt; {
+          const values = samples.map(sample =&gt; sample[field]).sort((a, b) =&gt; a - b);
+          result[field] = values.reduce((sum, current) =&gt; sum + current, 0) /
+            Math.max(1, values.length);
+          result[field + &#x27;P10&#x27;] = quantile(values, 0.1);
+          result[field + &#x27;P90&#x27;] = quantile(values, 0.9);
+        });
+        return result;
+      }
+
+      function simulatePhase(phaseIndex, cfg, seed) {
+        const rng = rngFactory(seed);
+        const arenaSamples = [];
+        const interiorSamples = [];
+        for (let sample = 0; sample &lt; cfg.samples; sample++) {
+          const enemyTotal = fuzzedCount(rng, cfg.enemyMeans[phaseIndex], cfg.fuzz, 40);
+          const playerTotal = fuzzedCount(rng, cfg.playerMeans[phaseIndex], cfg.fuzz, 40);
+          const internalTotal = fuzzedCount(rng, cfg.internalMeans[phaseIndex], cfg.fuzz, 8);
+          const stages = generateStages(rng, enemyTotal, phaseIndex);
+          const upgrades = generateUpgrades(rng, playerTotal);
+          const internals = generateInternals(rng, internalTotal);
+          const loadout = chooseLoadout(rng, phaseIndex);
+          const basePlayer = playerMetrics(upgrades, internals, loadout, cfg);
+          const baseEnemy = enemyMetrics(stages, basePlayer, cfg);
+          const baseIndex = combatIndex(basePlayer, baseEnemy);
+          const arenaEnemy = enemyOrder[randomInt(rng, enemyOrder.length)];
+          const hard = rng() &lt; cfg.hardChance;
+          const composition = arenaComposition(rng, arenaEnemy, hard, cfg.waves);
+          const arenaStages = addArenaPoison(stages, arenaEnemy, cfg, rng);
+          const purchaseFloat = composition.coins / cfg.shopPrice * cfg.spendEfficiency;
+          let purchases = Math.floor(purchaseFloat);
+          if (rng() &lt; purchaseFloat - purchases) purchases++;
+          const arenaUpgrades = upgradeGain(
+            rng, upgrades, purchases, cfg.spendStrategy,
+            basePlayer, internals, loadout, cfg);
+          const arenaPlayer = playerMetrics(arenaUpgrades, internals, loadout, cfg);
+          const arenaEnemyMetrics = enemyMetrics(arenaStages, arenaPlayer, cfg);
+          const arenaMargin = (combatIndex(arenaPlayer, arenaEnemyMetrics) /
+            baseIndex - 1) * 100;
+          const damage = arenaDamage(
+            composition, arenaStages, basePlayer, cfg);
+          const arenaSurvival = survivalChance(damage, basePlayer.hp);
+          const arenaEv = arenaMargin * cfg.horizon * arenaSurvival -
+            cfg.deathCost * (1 - arenaSurvival) -
+            damage / Math.max(1, basePlayer.hp) * 100 * cfg.riskWeight;
+          arenaSamples.push({
+            ev: arenaEv,
+            enemyHp: arenaEnemyMetrics.hp,
+            enemyDps: arenaEnemyMetrics.dps,
+            playerHp: arenaPlayer.hp,
+            playerDps: arenaPlayer.dps,
+            coins: composition.coins,
+            damage,
+            survival: arenaSurvival,
+            enemyHpDelta: (arenaEnemyMetrics.hp / baseEnemy.hp - 1) * 100,
+            enemyDpsDelta: (arenaEnemyMetrics.dps / baseEnemy.dps - 1) * 100,
+            playerHpDelta: (arenaPlayer.hp / basePlayer.hp - 1) * 100,
+            playerDpsDelta: (arenaPlayer.dps / basePlayer.dps - 1) * 100,
+            marginDelta: arenaMargin
+          });
+
+          const targetEnemy = cfg.interiorEnemy === &#x27;random&#x27;
+            ? enemyOrder[randomInt(rng, enemyOrder.length)] : cfg.interiorEnemy;
+          const interiorStages = resetInteriorEnemy(stages, targetEnemy);
+          const interiorEnemyMetrics = enemyMetrics(
+            interiorStages, basePlayer, cfg);
+          const interiorMargin = (combatIndex(basePlayer, interiorEnemyMetrics) /
+            baseIndex - 1) * 100;
+          const interiorSurvival = survivalChance(
+            cfg.interiorDamage, basePlayer.hp);
+          const interiorEv = interiorMargin * cfg.horizon * interiorSurvival -
+            cfg.deathCost * (1 - interiorSurvival) -
+            cfg.interiorDamage / Math.max(1, basePlayer.hp) *
+              100 * cfg.riskWeight;
+          interiorSamples.push({
+            ev: interiorEv,
+            enemyHp: interiorEnemyMetrics.hp,
+            enemyDps: interiorEnemyMetrics.dps,
+            playerHp: basePlayer.hp,
+            playerDps: basePlayer.dps,
+            coins: 0,
+            damage: cfg.interiorDamage,
+            survival: interiorSurvival,
+            enemyHpDelta: (interiorEnemyMetrics.hp / baseEnemy.hp - 1) * 100,
+            enemyDpsDelta: (interiorEnemyMetrics.dps / baseEnemy.dps - 1) * 100,
+            playerHpDelta: 0,
+            playerDpsDelta: 0,
+            marginDelta: interiorMargin
+          });
+        }
+        return {
+          arena: summarize(arenaSamples),
+          interior: summarize(interiorSamples)
+        };
+      }
+
+      function pct(value, digits = 1) {
+        const prefix = value &gt; 0.045 ? &#x27;+&#x27; : &#x27;&#x27;;
+        return prefix + value.toFixed(digits) + &#x27;%&#x27;;
+      }
+
+      function points(value, digits = 1) {
+        const prefix = value &gt; 0.045 ? &#x27;+&#x27; : &#x27;&#x27;;
+        return prefix + value.toFixed(digits);
+      }
+
+      function number(value, digits = 2) {
+        return value.toFixed(digits);
+      }
+
+      function recommendationCards(results) {
+        const container = byId(&#x27;rbl-recommendations&#x27;);
+        container.replaceChildren();
+        results.forEach((result, index) =&gt; {
+          const winner = result.arena.ev &gt;= result.interior.ev ? &#x27;Arena&#x27; : &#x27;Enemy interior&#x27;;
+          const edge = Math.abs(result.arena.ev - result.interior.ev);
+          const card = document.createElement(&#x27;div&#x27;);
+          card.className = &#x27;card viz-stat&#x27;;
+          const label = document.createElement(&#x27;div&#x27;);
+          label.className = &#x27;text-muted&#x27;;
+          label.textContent = phaseNames[index];
+          const main = document.createElement(&#x27;div&#x27;);
+          main.className = &#x27;viz-stat-value&#x27;;
+          main.textContent = winner;
+          const detail = document.createElement(&#x27;div&#x27;);
+          detail.className = &#x27;text-small&#x27;;
+          detail.textContent = edge.toFixed(1) + &#x27; EV-point edge&#x27;;
+          card.append(label, main, detail);
+          container.append(card);
+        });
+      }
+
+      function drawChart(results) {
+        const svg = byId(&#x27;rbl-chart&#x27;);
+        Array.from(svg.children).forEach(child =&gt; {
+          if (![&#x27;title&#x27;, &#x27;desc&#x27;].includes(child.tagName.toLowerCase())) child.remove();
+        });
+        const all = [];
+        results.forEach(result =&gt; {
+          [&#x27;arena&#x27;, &#x27;interior&#x27;].forEach(choice =&gt; {
+            all.push(Math.abs(result[choice].evP10), Math.abs(result[choice].evP90));
+          });
+        });
+        const extent = Math.max(20, Math.ceil(Math.max(...all) / 10) * 10);
+        const left = 148;
+        const right = 45;
+        const top = 34;
+        const bottom = 30;
+        const width = 720 - left - right;
+        const height = 292 - top - bottom;
+        const x = value =&gt; left + (value + extent) / (extent * 2) * width;
+        const ns = &#x27;http://www.w3.org/2000/svg&#x27;;
+        function element(name, attrs, text) {
+          const node = document.createElementNS(ns, name);
+          Object.entries(attrs || {}).forEach(([key, val]) =&gt; node.setAttribute(key, val));
+          if (text !== undefined) node.textContent = text;
+          svg.append(node);
+          return node;
+        }
+        [-1, -0.5, 0, 0.5, 1].forEach(factor =&gt; {
+          const value = extent * factor;
+          element(&#x27;line&#x27;, {
+            x1: x(value), x2: x(value), y1: top - 8, y2: 292 - bottom,
+            class: factor === 0 ? &#x27;zero&#x27; : &#x27;grid&#x27;
+          });
+          element(&#x27;text&#x27;, {
+            x: x(value), y: 286, &#x27;text-anchor&#x27;: &#x27;middle&#x27;,
+            class: &#x27;muted&#x27;, &#x27;font-size&#x27;: &#x27;11&#x27;
+          }, (value &gt; 0 ? &#x27;+&#x27; : &#x27;&#x27;) + Math.round(value));
+        });
+        element(&#x27;text&#x27;, {
+          x: left + width / 2, y: 13, &#x27;text-anchor&#x27;: &#x27;middle&#x27;,
+          class: &#x27;muted&#x27;, &#x27;font-size&#x27;: &#x27;11&#x27;
+        }, &#x27;EV points (margin × persistence × survival − branch risk − death cost)&#x27;);
+        const groupHeight = height / 3;
+        results.forEach((result, phaseIndex) =&gt; {
+          const center = top + groupHeight * phaseIndex + groupHeight / 2;
+          element(&#x27;text&#x27;, {
+            x: 8, y: center + 4, &#x27;font-size&#x27;: &#x27;13&#x27;, &#x27;font-weight&#x27;: &#x27;500&#x27;
+          }, phaseNames[phaseIndex]);
+          [
+            { key: &#x27;arena&#x27;, label: &#x27;Arena&#x27;, offset: -13 },
+            { key: &#x27;interior&#x27;, label: &#x27;Interior&#x27;, offset: 13 }
+          ].forEach(series =&gt; {
+            const summary = result[series.key];
+            const y = center + series.offset;
+            element(&#x27;text&#x27;, {
+              x: 68, y: y + 4, class: &#x27;muted rbl-chart-label&#x27;,
+              &#x27;font-size&#x27;: &#x27;11&#x27;
+            }, series.label);
+            element(&#x27;line&#x27;, {
+              x1: x(summary.evP10), x2: x(summary.evP90),
+              y1: y, y2: y, class: series.key + &#x27; whisker&#x27;
+            });
+            element(&#x27;line&#x27;, {
+              x1: x(summary.evP10), x2: x(summary.evP10),
+              y1: y - 5, y2: y + 5, class: series.key + &#x27; cap&#x27;
+            });
+            element(&#x27;line&#x27;, {
+              x1: x(summary.evP90), x2: x(summary.evP90),
+              y1: y - 5, y2: y + 5, class: series.key + &#x27; cap&#x27;
+            });
+            element(&#x27;circle&#x27;, {
+              cx: x(summary.ev), cy: y, r: 6,
+              class: series.key + &#x27; mean&#x27;
+            });
+            const anchorRight = summary.ev &lt; extent * 0.72;
+            element(&#x27;text&#x27;, {
+              x: x(summary.ev) + (anchorRight ? 10 : -10),
+              y: y + (series.key === &#x27;arena&#x27; ? -7 : 13),
+              &#x27;text-anchor&#x27;: anchorRight ? &#x27;start&#x27; : &#x27;end&#x27;,
+              &#x27;font-size&#x27;: &#x27;11&#x27;
+            }, points(summary.ev));
+          });
+          if (phaseIndex &lt; 2) {
+            element(&#x27;line&#x27;, {
+              x1: 8, x2: 710, y1: center + groupHeight / 2,
+              y2: center + groupHeight / 2, class: &#x27;grid&#x27;
+            });
+          }
+        });
+        const description = results.map((result, index) =&gt; {
+          return phaseNames[index] + &#x27;: arena &#x27; + points(result.arena.ev) +
+            &#x27;, interior &#x27; + points(result.interior.ev);
+        }).join(&#x27;. &#x27;);
+        byId(&#x27;rbl-chart-desc&#x27;).textContent = description;
+      }
+
+      function renderTable(results) {
+        const body = byId(&#x27;rbl-table-body&#x27;);
+        body.replaceChildren();
+        results.forEach((result, phaseIndex) =&gt; {
+          [
+            [&#x27;Arena&#x27;, result.arena],
+            [&#x27;Interior&#x27;, result.interior]
+          ].forEach(([label, summary], choiceIndex) =&gt; {
+            const row = document.createElement(&#x27;tr&#x27;);
+            const values = [
+              choiceIndex === 0 ? phaseNames[phaseIndex] : &#x27;&#x27;,
+              label,
+              number(summary.enemyHp) + &#x27; (&#x27; + pct(summary.enemyHpDelta) + &#x27;)&#x27;,
+              number(summary.enemyDps) + &#x27; (&#x27; + pct(summary.enemyDpsDelta) + &#x27;)&#x27;,
+              number(summary.playerHp) + &#x27; (&#x27; + pct(summary.playerHpDelta) + &#x27;)&#x27;,
+              number(summary.playerDps) + &#x27; (&#x27; + pct(summary.playerDpsDelta) + &#x27;)&#x27;,
+              number(summary.coins, 1),
+              number(summary.damage, 2) + &#x27; HP · &#x27; +
+                Math.round(summary.survival * 100) + &#x27;%&#x27;,
+              points(summary.ev)
+            ];
+            values.forEach((text, cellIndex) =&gt; {
+              const cell = document.createElement(&#x27;td&#x27;);
+              cell.textContent = text;
+              if (cellIndex &gt;= 2) cell.className = &#x27;text-end text-nowrap&#x27;;
+              row.append(cell);
+            });
+            body.append(row);
+          });
+        });
+      }
+
+      function updateLabels() {
+        const labels = [
+          [&#x27;rbl-shop-price&#x27;, &#x27;rbl-shop-price-value&#x27;, value =&gt; value + &#x27; coins&#x27;],
+          [&#x27;rbl-spend-efficiency&#x27;, &#x27;rbl-spend-efficiency-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-hard-chance&#x27;, &#x27;rbl-hard-chance-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-waves&#x27;, &#x27;rbl-waves-value&#x27;, value =&gt; String(value)],
+          [&#x27;rbl-horizon&#x27;, &#x27;rbl-horizon-value&#x27;, value =&gt; value + (value === 1 ? &#x27; fight&#x27; : &#x27; fights&#x27;)],
+          [&#x27;rbl-risk-weight&#x27;, &#x27;rbl-risk-weight-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-death-cost&#x27;, &#x27;rbl-death-cost-value&#x27;, value =&gt; value + &#x27; EV&#x27;],
+          [&#x27;rbl-interior-damage&#x27;, &#x27;rbl-interior-damage-value&#x27;, value =&gt; Number(value).toFixed(2) + &#x27; HP&#x27;],
+          [&#x27;rbl-fuzz&#x27;, &#x27;rbl-fuzz-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-early-enemy&#x27;, &#x27;rbl-early-enemy-value&#x27;, String],
+          [&#x27;rbl-early-player&#x27;, &#x27;rbl-early-player-value&#x27;, String],
+          [&#x27;rbl-early-internals&#x27;, &#x27;rbl-early-internals-value&#x27;, String],
+          [&#x27;rbl-mid-enemy&#x27;, &#x27;rbl-mid-enemy-value&#x27;, String],
+          [&#x27;rbl-mid-player&#x27;, &#x27;rbl-mid-player-value&#x27;, String],
+          [&#x27;rbl-mid-internals&#x27;, &#x27;rbl-mid-internals-value&#x27;, String],
+          [&#x27;rbl-late-enemy&#x27;, &#x27;rbl-late-enemy-value&#x27;, String],
+          [&#x27;rbl-late-player&#x27;, &#x27;rbl-late-player-value&#x27;, String],
+          [&#x27;rbl-late-internals&#x27;, &#x27;rbl-late-internals-value&#x27;, String],
+          [&#x27;rbl-contact-rate&#x27;, &#x27;rbl-contact-rate-value&#x27;, value =&gt; Number(value).toFixed(2) + &#x27;/s&#x27;],
+          [&#x27;rbl-charger-accuracy&#x27;, &#x27;rbl-charger-accuracy-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-shooter-accuracy&#x27;, &#x27;rbl-shooter-accuracy-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-burst-util&#x27;, &#x27;rbl-burst-util-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-aim&#x27;, &#x27;rbl-aim-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-explosion&#x27;, &#x27;rbl-explosion-value&#x27;, value =&gt; Number(value).toFixed(2) + &#x27;×&#x27;],
+          [&#x27;rbl-bursts&#x27;, &#x27;rbl-bursts-value&#x27;, value =&gt; Number(value).toFixed(2)],
+          [&#x27;rbl-uptime&#x27;, &#x27;rbl-uptime-value&#x27;, value =&gt; value + &#x27;%&#x27;],
+          [&#x27;rbl-exposure&#x27;, &#x27;rbl-exposure-value&#x27;, value =&gt; value + &#x27;%&#x27;]
+        ];
+        labels.forEach(([input, output, format]) =&gt; {
+          byId(output).textContent = format(byId(input).value);
+        });
+      }
+
+      function run() {
+        const cfg = config();
+        const started = performance.now();
+        byId(&#x27;rbl-run&#x27;).disabled = true;
+        byId(&#x27;rbl-status&#x27;).textContent = &#x27;Simulating…&#x27;;
+        window.setTimeout(() =&gt; {
+          seedCounter += 7919;
+          const results = phaseNames.map((_, index) =&gt;
+            simulatePhase(index, cfg, seedCounter + index * 104729));
+          recommendationCards(results);
+          drawChart(results);
+          renderTable(results);
+          const elapsed = Math.round(performance.now() - started);
+          byId(&#x27;rbl-status&#x27;).textContent =
+            (cfg.samples * 3).toLocaleString() +
+            &#x27; fuzzed states · &#x27; + elapsed + &#x27; ms · Parentheses show change from the same pre-choice state.&#x27;;
+          byId(&#x27;rbl-run&#x27;).disabled = false;
+          if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+        }, 0);
+      }
+
+      root.querySelectorAll(&#x27;input[type=&quot;range&quot;]&#x27;).forEach(input =&gt; {
+        input.addEventListener(&#x27;input&#x27;, updateLabels);
+      });
+      byId(&#x27;rbl-run&#x27;).addEventListener(&#x27;click&#x27;, run);
+      updateLabels();
+      run();
+    })();
+  &lt;/script&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>

@@ -18,6 +18,11 @@ enum class Sound {
     RailgunShot,
     ChargerChargeUp,
     ChargerGo,
+    Teleport,
+    PowerUp,
+    ValueLowered,
+    SpawnerHit,
+    SpawnerDeath,
 };
 
 bool InitializeAudio(

@@ -19,6 +19,9 @@ std::uint64_t ConnectionSeed(std::uint64_t seed, int first, int second);
 
 // world_rooms.cpp, called from world_interiors.cpp and world_lua.cpp.
 void GenerateRooms(std::uint64_t seed);
+bool BuildRoomBloomGraph(
+    std::uint64_t seed, int targetCount, int& spawnRoom,
+    std::vector<int>& targetRooms);
 void GenerateSpawners(std::uint64_t seed);
 void ResetPlay();
 

@@ -97,7 +97,9 @@ void BuildBossTurrets(
             continue;
         std::vector<int> quadrantRooms;
         for (int room = 0; room < static_cast<int>(rooms.size()); ++room)
-            if (BossQuadrantForCell(
+            if ((!filterQuadrant ||
+                 rooms[room].distance >= 0) &&
+                BossQuadrantForCell(
                     rooms[room].row, rooms[room].column,
                     midRow, midCol) == quadrant)
                 quadrantRooms.push_back(room);
@@ -147,17 +149,22 @@ void UnlockBossInteriorPortals() {
     if (!node || node->type != RunNodeType::BossInterior) return;
     node->completed = true;
     run.clearedBossQuadrants[static_cast<int>(node->bossQuadrant)] = true;
-    for (RunPortal& portal : node->portals) {
-        portal.active = true;
-        if (node->interiorEntryRoom >= 0 &&
-            node->interiorEntryRoom < static_cast<int>(rooms.size())) {
-            const Room& room = rooms[node->interiorEntryRoom];
-            portal.interiorTrigger = {
-                RoomX(room) + interior.roomSize * 0.5f - 36.0f,
-                RoomY(room) + interior.roomSize * 0.5f - 36.0f,
-                72, 72};
-        }
-    }
+    BuildInteriorArenaDestinations(*node);
+    RebuildGameplayTextBoxes();
+}
+
+void SpawnBossInteriorExit(const BossTurret& turret) {
+    RunNode* node = CurrentRunNode();
+    if (!node || node->type != RunNodeType::BossInterior) return;
+    RunPortal portal;
+    if (!node->portals.empty())
+        portal = node->portals.front();
+    portal.destination = kInvalidRunNode;
+    portal.active = true;
+    portal.armed = false;
+    portal.interiorTrigger = BossTurretTargetRect(turret);
+    node->portals.push_back(portal);
+    BuildInteriorArenaDestinations(*node);
     RebuildGameplayTextBoxes();
 }
 
@@ -182,6 +189,7 @@ bool HitBossTurretTarget(const Rect& shot, int damage) {
         if (turret.health <= 0) {
             turret.alive = false;
             PlaySoundEffect(Sound::Explosion);
+            SpawnBossInteriorExit(turret);
             CheckBossInteriorCompletion();
         } else {
             PlaySoundEffect(Sound::HitEnemy);

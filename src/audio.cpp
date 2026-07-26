@@ -35,7 +35,7 @@ struct CachedSound {
     float dirtySeconds = 0;
 };
 
-std::array<CachedSound, 8> cachedSounds{{
+std::array<CachedSound, 13> cachedSounds{{
     {Sound::LaserShoot, nullptr},
     {Sound::HitEnemy, nullptr},
     {Sound::HitHurt, nullptr},
@@ -44,6 +44,11 @@ std::array<CachedSound, 8> cachedSounds{{
     {Sound::RailgunShot, nullptr},
     {Sound::ChargerChargeUp, nullptr},
     {Sound::ChargerGo, nullptr},
+    {Sound::Teleport, nullptr},
+    {Sound::PowerUp, nullptr},
+    {Sound::ValueLowered, nullptr},
+    {Sound::SpawnerHit, nullptr},
+    {Sound::SpawnerDeath, nullptr},
 }};
 std::vector<IDirectSoundBuffer*> voices;
 
@@ -52,7 +57,7 @@ struct SoundFile {
     const wchar_t* filename;
 };
 
-constexpr std::array<SoundFile, 8> kSoundFiles{{
+constexpr std::array<SoundFile, 13> kSoundFiles{{
     {Sound::LaserShoot, L"laserShoot.wav"},
     {Sound::HitEnemy, L"hitEnemy.wav"},
     {Sound::HitHurt, L"hitHurt.wav"},
@@ -61,6 +66,11 @@ constexpr std::array<SoundFile, 8> kSoundFiles{{
     {Sound::RailgunShot, L"railgunShot.wav"},
     {Sound::ChargerChargeUp, L"chargerChargeUp.wav"},
     {Sound::ChargerGo, L"chargerGo.wav"},
+    {Sound::Teleport, L"teleport.wav"},
+    {Sound::PowerUp, L"powerUp.wav"},
+    {Sound::ValueLowered, L"valueLowered.wav"},
+    {Sound::SpawnerHit, L"spawnerHit.wav"},
+    {Sound::SpawnerDeath, L"spawnerDeath.wav"},
 }};
 
 const wchar_t* FilenameFor(Sound sound) {

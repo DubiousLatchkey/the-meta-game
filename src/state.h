@@ -303,12 +303,16 @@ enum class EnemyDifficultyStat {
     Speed,
     Health,
     Burst,
+    Damage,
+    SpawnerHealth,
 };
 struct EnemyDifficultyStages {
     std::uint32_t size = 0;
     std::uint32_t speed = 0;
     std::uint32_t health = 0;
     std::uint32_t burst = 0;
+    std::uint32_t damage = 0;
+    std::uint32_t spawnerHealth = 0;
 };
 enum class PortalDirection {
     North,
@@ -380,6 +384,7 @@ struct RunPortal {
     float center = 0;
     float width = 0;
     bool active = false;
+    bool armed = false;
     Rect interiorTrigger{};
 };
 struct RunPickup {
@@ -413,6 +418,7 @@ struct RunNode {
     std::vector<RunPortal> portals;
     std::vector<RunPickup> pickups;
     std::vector<ShopOffer> shopOffers;
+    RunNodeId shopReturnDestination = kInvalidRunNode;
     bool entered = false;
     bool completed = false;
     std::uint32_t activeWave = 0;
@@ -444,6 +450,7 @@ struct RunData {
     bool mapActive = false;
     std::vector<RunUpgrade> upgrades;
     std::map<std::string, EnemyDifficultyStages> enemyDifficulty;
+    std::uint32_t arenasWithoutEnemyInterior = 0;
     std::uint32_t currency = 0;
     std::uint64_t deathSequence = 0;
     float multishotRemaining = 0;
