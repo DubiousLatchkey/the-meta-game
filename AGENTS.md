@@ -7,8 +7,8 @@
   manifest and per-binary version resources from `src`; compile resources
   before linking, and apply any Authenticode signature only after the final
   link. Pass `DEBUG_COMMANDS=0` to `build.bat` to compile out the O/P debug
-  shortcuts; that configuration uses its own object directory so switching
-  flags cannot reuse incompatible objects.
+  shortcuts. Each configuration caches its own objects and linked game binary;
+  the selected binary is copied to `release/the-meta-game.exe` on every build.
 - Keep behavior separated under `src`: platform startup in `app`, shared data in
   `state`, Lua/world generation in the `world_*` units, simulation in
   `gameplay`/`gameplay_*`, and drawing in `rendering`/`rendering_*`. Preserve

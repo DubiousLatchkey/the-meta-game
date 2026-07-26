@@ -16,6 +16,7 @@ BUILD_DIR=build
 LUA_BUILD_DIR=$(BUILD_DIR)\lua
 RELEASE_DIR=release
 GOLDEN_AUDIO_DIR=$(RELEASE_DIR)\golden_audio
+GAME_BINARY=$(BUILD_DIR)\the-meta-game.exe
 
 LUA_OBJECTS=$(LUA_BUILD_DIR)\lapi.obj $(LUA_BUILD_DIR)\lauxlib.obj $(LUA_BUILD_DIR)\lbaselib.obj $(LUA_BUILD_DIR)\lcode.obj $(LUA_BUILD_DIR)\lcorolib.obj $(LUA_BUILD_DIR)\lctype.obj $(LUA_BUILD_DIR)\ldblib.obj $(LUA_BUILD_DIR)\ldebug.obj $(LUA_BUILD_DIR)\ldo.obj $(LUA_BUILD_DIR)\ldump.obj $(LUA_BUILD_DIR)\lfunc.obj $(LUA_BUILD_DIR)\lgc.obj $(LUA_BUILD_DIR)\linit.obj $(LUA_BUILD_DIR)\liolib.obj $(LUA_BUILD_DIR)\llex.obj $(LUA_BUILD_DIR)\lmathlib.obj $(LUA_BUILD_DIR)\lmem.obj $(LUA_BUILD_DIR)\loadlib.obj $(LUA_BUILD_DIR)\lobject.obj $(LUA_BUILD_DIR)\lopcodes.obj $(LUA_BUILD_DIR)\loslib.obj $(LUA_BUILD_DIR)\lparser.obj $(LUA_BUILD_DIR)\lstate.obj $(LUA_BUILD_DIR)\lstring.obj $(LUA_BUILD_DIR)\lstrlib.obj $(LUA_BUILD_DIR)\ltable.obj $(LUA_BUILD_DIR)\ltablib.obj $(LUA_BUILD_DIR)\ltm.obj $(LUA_BUILD_DIR)\lundump.obj $(LUA_BUILD_DIR)\lutf8lib.obj $(LUA_BUILD_DIR)\lvm.obj $(LUA_BUILD_DIR)\lzio.obj
 GAME_OBJECTS=$(BUILD_DIR)\app.obj $(BUILD_DIR)\arena_level.obj $(BUILD_DIR)\audio.obj $(BUILD_DIR)\audio_level.obj $(BUILD_DIR)\glyph_level.obj $(BUILD_DIR)\roguelite.obj $(BUILD_DIR)\state.obj $(BUILD_DIR)\world_graph_tool.obj $(BUILD_DIR)\world_interiors.obj $(BUILD_DIR)\world_lua.obj $(BUILD_DIR)\world_rooms.obj $(BUILD_DIR)\world_text.obj $(BUILD_DIR)\gameplay.obj $(BUILD_DIR)\gameplay_boss.obj $(BUILD_DIR)\gameplay_debug.obj $(BUILD_DIR)\gameplay_levels.obj $(BUILD_DIR)\gameplay_menu.obj $(BUILD_DIR)\gameplay_player_interior.obj $(BUILD_DIR)\gameplay_run.obj $(BUILD_DIR)\gameplay_tuning.obj $(BUILD_DIR)\rendering.obj $(BUILD_DIR)\rendering_levels.obj $(BUILD_DIR)\rendering_run.obj $(BUILD_DIR)\text_renderer.obj
@@ -23,7 +24,7 @@ GAME_RESOURCE=$(BUILD_DIR)\game_resources.res
 RESET_RESOURCE=$(BUILD_DIR)\reset_resources.res
 GOLDEN_AUDIO_FILES=$(GOLDEN_AUDIO_DIR)\laserShoot.wav $(GOLDEN_AUDIO_DIR)\hitEnemy.wav $(GOLDEN_AUDIO_DIR)\hitHurt.wav $(GOLDEN_AUDIO_DIR)\explosion.wav $(GOLDEN_AUDIO_DIR)\aimTick.wav $(GOLDEN_AUDIO_DIR)\railgunShot.wav $(GOLDEN_AUDIO_DIR)\chargerChargeUp.wav $(GOLDEN_AUDIO_DIR)\chargerGo.wav $(GOLDEN_AUDIO_DIR)\teleport.wav $(GOLDEN_AUDIO_DIR)\powerUp.wav $(GOLDEN_AUDIO_DIR)\valueLowered.wav $(GOLDEN_AUDIO_DIR)\spawnerHit.wav $(GOLDEN_AUDIO_DIR)\spawnerDeath.wav
 
-all: dirs $(GOLDEN_AUDIO_FILES) $(RELEASE_DIR)\the-meta-game.exe $(RELEASE_DIR)\reset-game.exe
+all: dirs $(GOLDEN_AUDIO_FILES) publish-game $(RELEASE_DIR)\reset-game.exe
 
 dirs:
 	@if not exist $(BUILD_DIR) mkdir $(BUILD_DIR) & if not exist $(LUA_BUILD_DIR) mkdir $(LUA_BUILD_DIR) & if not exist $(RELEASE_DIR) mkdir $(RELEASE_DIR) & if not exist $(GOLDEN_AUDIO_DIR) mkdir $(GOLDEN_AUDIO_DIR)
@@ -99,9 +100,12 @@ $(GOLDEN_AUDIO_DIR)\spawnerHit.wav: assets\audio\spawnerHit.wav
 $(GOLDEN_AUDIO_DIR)\spawnerDeath.wav: assets\audio\spawnerDeath.wav
 	@copy /y assets\audio\spawnerDeath.wav $@ >nul
 
-$(RELEASE_DIR)\the-meta-game.exe: $(GAME_OBJECTS) $(GAME_RESOURCE) $(BUILD_DIR)\lua.lib
+$(GAME_BINARY): $(GAME_OBJECTS) $(GAME_RESOURCE) $(BUILD_DIR)\lua.lib
 	link /nologo /SUBSYSTEM:WINDOWS /out:$@ $(GAME_OBJECTS) $(GAME_RESOURCE) $(BUILD_DIR)\lua.lib user32.lib gdi32.lib dsound.lib dxguid.lib xinput9_1_0.lib shell32.lib
 	@echo Built $@
+
+publish-game: $(GAME_BINARY)
+	@copy /y $(GAME_BINARY) $(RELEASE_DIR)\the-meta-game.exe >nul
 
 $(RELEASE_DIR)\reset-game.exe: $(BUILD_DIR)\reset_game.obj $(RESET_RESOURCE)
 	link /nologo /SUBSYSTEM:WINDOWS /out:$@ $(BUILD_DIR)\reset_game.obj $(RESET_RESOURCE) user32.lib shell32.lib
