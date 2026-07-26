@@ -32,13 +32,14 @@ void EnterPostBossTuningRoom() {
     constexpr float rowHeight = 30.0f;
     constexpr float horizontalMargin = 70.0f;
     constexpr float verticalMargin = 260.0f;
+    constexpr float exitBuffer = 300.0f;
     const std::size_t rows =
         (worldConstants.size() + columns - 1) / columns;
     const float width = horizontalMargin * 2.0f +
         columnWidth * static_cast<float>(columns);
     const float height = std::max(
         kRunArenaHeight,
-        verticalMargin + rowHeight * static_cast<float>(rows));
+        verticalMargin + rowHeight * static_cast<float>(rows) + exitBuffer);
     runArena = BuildArenaLevel(
         {0, 0, width, height},
         0x54554e494e47524fULL, {}, 0, kWall);

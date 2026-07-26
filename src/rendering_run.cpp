@@ -252,6 +252,14 @@ void DrawRunArena() {
             static_cast<int>(
                 portal.y - text_renderer::kGlyphHeight - 16 - CameraY()),
             0x00FFFFFF);
+        DrawTextString(
+            "EDIT AT YOUR OWN RISK",
+            static_cast<int>(
+                portal.x + portal.width + 28 - CameraX()),
+            static_cast<int>(
+                CenterY(portal) -
+                text_renderer::kGlyphHeight * 0.5f - CameraY()),
+            0x00FFB060);
         return;
     }
     const auto drawPortals = [&]() {
@@ -378,12 +386,13 @@ void DrawRunArena() {
                 offer.purchaseTimer /
                     std::max(0.01f, rogueliteTuning.shopPurchaseSeconds),
                 0.0f, 1.0f);
-            DrawTextString(
-                offer.purchased ? "OWNED" : "STAND HERE",
-                static_cast<int>(CenterX(purchase) -
-                    text_renderer::MeasureWidth(
-                        offer.purchased ? 5 : 10) * 0.5f - CameraX()),
-                static_cast<int>(purchase.y + 32 - CameraY()), 0x00FFFFFF);
+            if (offer.purchased)
+                DrawTextString(
+                    "OWNED",
+                    static_cast<int>(CenterX(purchase) -
+                        text_renderer::MeasureWidth(5) * 0.5f - CameraX()),
+                    static_cast<int>(
+                        purchase.y + 32 - CameraY()), 0x00FFFFFF);
             DrawWorldRect({purchase.x + 12, purchase.y + 88,
                 (purchase.width - 24) * progress, 12}, 0x00FFFFFF);
         }
@@ -391,11 +400,6 @@ void DrawRunArena() {
         const Rect purchase = ResetWordsPurchaseArea();
         DrawWorldRect(purchase, 0x00502070);
         (void)reset;
-        DrawTextString(
-            "STAND HERE",
-            static_cast<int>(CenterX(purchase) -
-                text_renderer::MeasureWidth(10) * 0.5f - CameraX()),
-            static_cast<int>(purchase.y + 20 - CameraY()), 0x00FFFFFF);
         const float progress = std::clamp(
             node->resetWordsPurchaseTimer /
                 std::max(0.01f, rogueliteTuning.shopPurchaseSeconds),

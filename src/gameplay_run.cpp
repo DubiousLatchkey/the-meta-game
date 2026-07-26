@@ -266,8 +266,17 @@ void BuildArenaChoicePortals(RunNode& node) {
             choices.push_back(RunNodeType::BossInterior);
         const std::uint64_t playerInteriorRoll = (roll >> 16) % 7;
         const bool earlyDepth = sourceLevel >= 5 && sourceLevel <= 10;
-        if (playerInteriorRoll < (earlyDepth ? 2ULL : 1ULL))
+        const int playerInteriorBatch = sourceLevel >= 0 ? 0 :
+            1 + (-sourceLevel - 1) / 10;
+        const bool batchAlreadyUsed = std::find(
+            run.playerInteriorPortalBatches.begin(),
+            run.playerInteriorPortalBatches.end(),
+            playerInteriorBatch) != run.playerInteriorPortalBatches.end();
+        if (!batchAlreadyUsed &&
+            playerInteriorRoll < (earlyDepth ? 2ULL : 1ULL)) {
             choices.push_back(RunNodeType::PlayerInterior);
+            run.playerInteriorPortalBatches.push_back(playerInteriorBatch);
+        }
         if ((roll >> 24) % 10 != 0)
             choices.push_back(RunNodeType::Shop);
         while (choices.size() < 4)
@@ -710,6 +719,14 @@ void AppendShopTextBoxes() {
         textBoxes.push_back({{x, y, width,
             static_cast<float>(text_renderer::kGlyphHeight)}, found->second});
     };
+    const auto addCenteredWord = [&](const std::string& id, float centerX,
+                                      float y) {
+        const auto found = wordIds.find(id);
+        if (found == wordIds.end()) return;
+        const float width = static_cast<float>(
+            text_renderer::MeasureWidth(words[found->second].bytes.size()));
+        addWord(id, centerX - width * 0.5f, y);
+    };
     const auto nameId = [](const ShopOffer& offer) {
         if (offer.kind == ShopOfferKind::PrimaryWeapon) {
             if (offer.primaryWeapon == PrimaryWeapon::Railgun)
@@ -739,16 +756,22 @@ void AppendShopTextBoxes() {
     };
     for (std::size_t index = 0; index < node->shopOffers.size(); ++index) {
         const Rect target = ShopOfferTarget(index);
+        const Rect purchase = ShopOfferPurchaseArea(index);
         addWord(nameId(node->shopOffers[index]), target.x, target.y - 66);
         addWord("shop_cost_5", target.x, target.y - 40);
+        const bool repeatable =
+            node->shopOffers[index].kind == ShopOfferKind::Upgrade;
+        if (repeatable || !node->shopOffers[index].purchased)
+            addCenteredWord(
+                "shop_stand_here", CenterX(purchase), purchase.y + 32);
     }
     const Rect purchase = ResetWordsPurchaseArea();
-    addWord("shop_reset_words",
-        purchase.x - text_renderer::MeasureWidth(11) - 20.0f,
-        purchase.y + 20.0f);
-    addWord("shop_cost_3",
-        purchase.x - text_renderer::MeasureWidth(12) - 20.0f,
-        purchase.y + 48.0f);
+    addCenteredWord(
+        "shop_cost_3", CenterX(purchase), purchase.y - 56.0f);
+    addCenteredWord(
+        "shop_reset_words", CenterX(purchase), purchase.y - 28.0f);
+    addCenteredWord(
+        "shop_stand_here", CenterX(purchase), purchase.y + 20.0f);
 }
 
 void RebuildGameplayTextBoxes() {

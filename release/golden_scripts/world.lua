@@ -70,6 +70,7 @@ local words = {
     shop_cost_5 = word("COST 5 COINS"),
     shop_cost_3 = word("COST 3 COINS"),
     shop_reset_words = word("RESET WORDS"),
+    shop_stand_here = word("STAND HERE"),
 }
 local text = {
     help = { words.move, words.wasd, words.fire, words.mouse,

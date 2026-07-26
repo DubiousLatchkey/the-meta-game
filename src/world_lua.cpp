@@ -1055,8 +1055,10 @@ bool DecrementWorldConstant(std::size_t index) {
     if (!end || *end != '\0') return false;
     worldConstantOverrides[worldConstants[index].path] = current - 1.0;
     SaveMutations();
+    const std::string previousMap = currentMap;
     if (!LoadWorldScript(gameDirectory / "world.lua")) return false;
     ApplyMutations();
+    currentMap = previousMap;
     return true;
 }
 

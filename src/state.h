@@ -484,6 +484,7 @@ struct RunData {
     std::vector<RunUpgrade> upgrades;
     std::map<std::string, EnemyDifficultyStages> enemyDifficulty;
     std::uint32_t arenasWithoutEnemyInterior = 0;
+    std::vector<int> playerInteriorPortalBatches;
     std::uint32_t currency = 0;
     std::uint64_t deathSequence = 0;
     float multishotRemaining = 0;
