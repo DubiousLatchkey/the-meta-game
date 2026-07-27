@@ -424,7 +424,7 @@ void ResetEnemyDifficultyProgress() {
         organ.maximum = organ.value;
         UpdateValueWord(organ);
     }
-    SaveMutations();
+    MarkMutationsDirty();
 }
 
 void ApplyArenaDownside(RunNode& node) {
@@ -840,6 +840,14 @@ void CreateWaveSpawners(RunNode& node, std::uint32_t wave) {
 void ConfigureNode(RunNode& node) {
     debugRoom = false;
     postBossTuningRoom = false;
+    if (node.type == RunNodeType::PlayerInterior)
+        node.portals.erase(
+            std::remove_if(
+                node.portals.begin(), node.portals.end(),
+                [](const RunPortal& portal) {
+                    return portal.temporaryFallback;
+                }),
+            node.portals.end());
     if (legacyInteriorArchetype.empty())
         legacyInteriorArchetype = interior.archetype;
     if (legacyInteriorRoomSize == 0)

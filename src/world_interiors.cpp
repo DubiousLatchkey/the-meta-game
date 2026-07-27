@@ -16,6 +16,7 @@ void BuildInteriorWorld(std::uint64_t seed) {
 }
 
 void BuildPlayerInteriorWorld(std::uint64_t, int& spawnRoom) {
+    InvalidateWallCache();
     rooms.clear();
     roomAt.clear();
     roomConnections.clear();
@@ -86,6 +87,7 @@ BossQuadrant BossQuadrantForCell(
 
 void BuildBossInteriorWorld(
     std::uint64_t seed, BossQuadrant quadrant, int& spawnRoom) {
+    InvalidateWallCache();
     rooms.clear();
     roomAt.clear();
     roomConnections.clear();
@@ -209,8 +211,10 @@ Rect PlayerInteriorDoorwayRect(int doorway) {
 
 void OpenPlayerInteriorDoorway(int doorway) {
     const auto [first, second] = PlayerInteriorDoorwayRooms(doorway);
-    if (first >= 0 && second >= 0)
+    if (first >= 0 && second >= 0) {
         roomConnections.insert(RoomEdge(first, second));
+        InvalidateWallCache();
+    }
 }
 
 }  // namespace game

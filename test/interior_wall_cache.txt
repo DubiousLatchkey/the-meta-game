@@ -1,0 +1,4 @@
+circle: 37 rooms, 176 walls, 0 invalid wall indices
+triangle: 31 rooms, 164 walls, 0 invalid wall indices
+charger: 29 rooms, 148 walls, 0 invalid wall indices
+shooter: 21 rooms, 108 walls, 0 invalid wall indices

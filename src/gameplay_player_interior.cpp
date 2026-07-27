@@ -72,6 +72,22 @@ void StartPlayerInteriorWave(RunNode& node, int room) {
 
 }  // namespace
 
+bool PlayerInteriorRoomHasAvailableAlteration(int room) {
+    const RunNode* node = CurrentRunNode();
+    if (!node) return false;
+    const PlayerAlteration alteration =
+        AlterationForRoom(*node, room);
+    if (alteration == PlayerAlteration::Count) return false;
+    if (!playerInteriorState.permanent[0] &&
+        alteration != PlayerAlteration::Regeneration)
+        return false;
+    const int permanentIndex = static_cast<int>(alteration) - 3;
+    return permanentIndex >= 0 &&
+        permanentIndex < static_cast<int>(
+            playerInteriorState.permanent.size()) &&
+        !playerInteriorState.permanent[permanentIndex];
+}
+
 bool HitPlayerAlteration(const Rect& shot) {
     RunNode* node = CurrentRunNode();
     if (!node || node->type != RunNodeType::PlayerInterior ||
@@ -98,7 +114,7 @@ bool HitPlayerAlteration(const Rect& shot) {
         node->playerInteriorAlterationRoom = room;
         node->playerInteriorAlterationTimer =
             kPlayerAlterationDisplaySeconds;
-        SaveMutations();
+        MarkMutationsDirty();
         return true;
     }
     return false;

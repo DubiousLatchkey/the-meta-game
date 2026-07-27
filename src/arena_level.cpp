@@ -562,7 +562,7 @@ bool HitArenaWallMotif(ArenaLevel& arena, const Rect& shot) {
             pixel.rgb[channel] =
                 std::max(0, pixel.rgb[channel] - kWallChannelDamage);
         }
-        SaveMutations();
+        MarkMutationsDirty();
         return true;
     }
     return ArenaGeometryOverlaps(arena, shot);

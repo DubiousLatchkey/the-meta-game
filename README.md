@@ -28,7 +28,7 @@ Sprite, wall-asset, glyph, word, world-constant, and Player Internals mutations
 persist in `release/game/mutations.lua`. Run routes, currency, temporary
 powerups, and enemy-difficulty stages are session-only. To restore the writable
 world, audio, and mutations to their packaged defaults, close the game and run
-`release/reset-game.exe`.
+`reset-game.exe` (`release/reset-game.exe` in a source build).
 
 ## Controls
 

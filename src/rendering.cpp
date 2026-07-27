@@ -861,7 +861,7 @@ void Render(HWND window) {
         DrawWorldRect(floor, CompositeColor(pixel, 7));
     }
     const int activeRoom = CurrentRoom();
-    const std::vector<WallRect> walls = BuildWalls();
+    const std::vector<WallRect>& walls = BuildWalls();
     for (const WallRect& wall : walls) {
         if (wall.room == activeRoom) continue;
         const Room& room = rooms[wall.room];

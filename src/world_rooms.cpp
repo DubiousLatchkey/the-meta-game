@@ -12,6 +12,8 @@
 namespace game {
 
 std::set<std::pair<int, int>> roomConnections;
+std::vector<WallRect> wallCache;
+bool wallCacheDirty = true;
 
 std::pair<int, int> RoomEdge(int first, int second) {
     return first < second
@@ -303,6 +305,7 @@ bool BuildRoomBloomGraph(
 }
 
 void GenerateRooms(std::uint64_t seed) {
+    InvalidateWallCache();
     rooms.clear();
     roomAt.clear();
     roomConnections.clear();
@@ -716,29 +719,36 @@ int CurrentRoom() {
         playerY + kPlayerSize * 0.5f);
 }
 
-std::vector<WallRect> BuildWalls() {
-    std::vector<WallRect> walls;
+void InvalidateWallCache() {
+    wallCacheDirty = true;
+}
+
+const std::vector<WallRect>& BuildWalls() {
+    if (!wallCacheDirty) return wallCache;
+    wallCache.clear();
+    wallCache.reserve(rooms.size() * 8);
     for (int index = 0; index < static_cast<int>(rooms.size()); ++index) {
         const Room& room = rooms[index];
         const float x = RoomX(room), y = RoomY(room);
         AddSplitHorizontal(
-            walls, index, x, y,
+            wallCache, index, x, y,
             RoomsConnected(
                 index, RoomIndexAt(room.row - 1, room.column)));
         AddSplitHorizontal(
-            walls, index, x, y + interior.roomSize - kWall,
+            wallCache, index, x, y + interior.roomSize - kWall,
             RoomsConnected(
                 index, RoomIndexAt(room.row + 1, room.column)));
         AddSplitVertical(
-            walls, index, x, y,
+            wallCache, index, x, y,
             RoomsConnected(
                 index, RoomIndexAt(room.row, room.column - 1)));
         AddSplitVertical(
-            walls, index, x + interior.roomSize - kWall, y,
+            wallCache, index, x + interior.roomSize - kWall, y,
             RoomsConnected(
                 index, RoomIndexAt(room.row, room.column + 1)));
     }
-    return walls;
+    wallCacheDirty = false;
+    return wallCache;
 }
 
 bool HitsWall(const Rect& rectangle, int* room) {

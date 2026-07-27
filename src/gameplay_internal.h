@@ -112,6 +112,7 @@ void InitializeBossFight(RunNode& node);
 // Player interior (gameplay_player_interior.cpp).
 bool HitPlayerAlteration(const Rect& shot);
 void UpdatePlayerInteriorAlteration(float dt);
+bool PlayerInteriorRoomHasAvailableAlteration(int room);
 
 // Debug room support that the core file's hit-resolution still needs
 // (gameplay_debug.cpp only reads/writes the shared debug* state above).

@@ -25,6 +25,11 @@ namespace {
 
 std::vector<std::vector<std::uint8_t>> pristineWordBytes;
 std::map<std::string, double> worldConstantOverrides;
+bool mutationsDirty = false;
+float mutationQuietSeconds = 0.0f;
+float mutationDirtySeconds = 0.0f;
+constexpr float kMutationQuietFlushSeconds = 1.0f;
+constexpr float kMutationMaximumFlushSeconds = 5.0f;
 
 bool IntegerKey(const std::string& key, lua_Integer& value) {
     char* end = nullptr;
@@ -970,8 +975,15 @@ bool LoadGoldenWorldForTools() {
     return LoadWorldScript(goldenDirectory / "world.lua");
 }
 
-void SaveMutations() {
-    std::ofstream output(gameDirectory / "mutations.lua", std::ios::trunc);
+namespace {
+
+bool WriteMutationSnapshot() {
+    const std::filesystem::path destination =
+        gameDirectory / "mutations.lua";
+    std::filesystem::path temporary = destination;
+    temporary += L".tmp";
+    std::ofstream output(temporary, std::ios::trunc);
+    if (!output) return false;
     output << "-- Generated persistent cosmetic and Player Internals state.\n";
     output << "local function set_world_constant(path,value) end\n";
     output << "local function set_pixel(enemy,row,column,r,g,b) end\n";
@@ -1044,6 +1056,43 @@ void SaveMutations() {
     for (int index = 0; index < 12; ++index)
         if (playerInteriorState.brokenDoorways[index])
             output << "set_player_doorway(" << index << ")\n";
+    output.close();
+    if (!output) return false;
+    return MoveFileExW(
+               temporary.c_str(), destination.c_str(),
+               MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+}
+
+}  // namespace
+
+void MarkMutationsDirty() {
+    if (!mutationsDirty) mutationDirtySeconds = 0.0f;
+    mutationsDirty = true;
+    mutationQuietSeconds = 0.0f;
+}
+
+void UpdateMutationPersistence(float dt) {
+    if (!mutationsDirty) return;
+    mutationQuietSeconds += dt;
+    mutationDirtySeconds += dt;
+    if (mutationQuietSeconds >= kMutationQuietFlushSeconds ||
+        mutationDirtySeconds >= kMutationMaximumFlushSeconds)
+        FlushMutations();
+}
+
+bool FlushMutations() {
+    if (!mutationsDirty) return true;
+    if (WriteMutationSnapshot()) {
+        mutationsDirty = false;
+        mutationQuietSeconds = 0.0f;
+        mutationDirtySeconds = 0.0f;
+        return true;
+    } else {
+        // Avoid retrying a failed filesystem operation on every frame.
+        mutationQuietSeconds = 0.0f;
+        mutationDirtySeconds = 0.0f;
+        return false;
+    }
 }
 
 bool DecrementWorldConstant(std::size_t index) {
@@ -1054,7 +1103,8 @@ bool DecrementWorldConstant(std::size_t index) {
         std::strtod(worldConstants[index].value.c_str(), &end);
     if (!end || *end != '\0') return false;
     worldConstantOverrides[worldConstants[index].path] = current - 1.0;
-    SaveMutations();
+    MarkMutationsDirty();
+    if (!FlushMutations()) return false;
     const std::string previousMap = currentMap;
     if (!LoadWorldScript(gameDirectory / "world.lua")) return false;
     ApplyMutations();
@@ -1065,12 +1115,15 @@ bool DecrementWorldConstant(std::size_t index) {
 void ResetWordMutations() {
     for (std::size_t index = 0; index < pristineWordBytes.size(); ++index)
         words[index].bytes = pristineWordBytes[index];
-    SaveMutations();
+    MarkMutationsDirty();
     BuildWorldTextBoxes();
 }
 
 bool ReloadWorld(bool reset) {
     if (reset) {
+        mutationsDirty = false;
+        mutationQuietSeconds = 0.0f;
+        mutationDirtySeconds = 0.0f;
         // Validate the golden world before replacing a working runtime copy.
         // A partially edited golden script must not make the next launch fail.
         if (!LoadWorldScript(goldenDirectory / "world.lua"))
@@ -1085,6 +1138,7 @@ bool ReloadWorld(bool reset) {
         ResetPlay();
         return true;
     }
+    if (!FlushMutations()) return false;
     if (!CopyGoldenWorld(false)) return false;
     if (!LoadWorldScript(gameDirectory / "world.lua")) {
         if (!CopyGoldenWorld(true)) return false;

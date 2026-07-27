@@ -11,8 +11,8 @@
   the selected binary is copied to `release/the-meta-game.exe` on every build.
   For signed releases, pass `-DebugCommands 0` to `build-signed.bat`; the
   signing script forwards that selection into the build before signing. The
-  signed ZIP excludes writable `release/game` state and the standalone reset
-  utility even though both executables are signed and left under `release`.
+  signed ZIP excludes writable `release/game` state and includes both signed
+  executables: `the-meta-game.exe` and `reset-game.exe`.
 - Keep behavior separated under `src`: platform startup in `app`, shared data in
   `state`, Lua/world generation in the `world_*` units, simulation in
   `gameplay`/`gameplay_*`, and drawing in `rendering`/`rendering_*`. Preserve
@@ -34,14 +34,20 @@
   entities beyond five screen lengths from the player. Sleeping enemies and
   spawners must stay out of crowding, targeting, collision, and rendering hot
   paths; clear map-owned enemies and spawners whenever the simulation map
-  changes.
+  changes. Interior wall rectangles are cached and must be invalidated whenever
+  rooms, room connections, or the interior room size changes; invalidate before
+  rebuilding so successful-generation early returns cannot expose stale wall
+  indices. Enemy crowding accumulates pairwise pushes and performs at most one
+  network-fit validation per moved enemy in each separation pass.
 - An Enemy Interior's selected archetype sprite is its room graph: occupied
   cells are square rooms, cardinal neighbors are exits, and each cell's RGB
   values color its walls.
 - Visible Lua text is composed from lists of shared mutable word-table references.
   Printable 5x7 glyph shapes also live in Lua. Sprite RGB, glyph RGB, and word
-  bytes persist through `mutations.lua`; run enemy-difficulty stages and their
-  organ value displays are session-only.
+  bytes persist through `mutations.lua`; mutation snapshots are written
+  atomically after one quiet second, at least every five dirty seconds, before
+  reload, and on shutdown. Run enemy-difficulty stages and their organ value
+  displays are session-only.
 - Procedural room spawners are active only while the player occupies their room.
   Every room contains at least one current-archetype spawner. The persistent
   level selector is exposed by its dedicated level geometry.

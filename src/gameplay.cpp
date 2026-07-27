@@ -380,7 +380,7 @@ bool HitText(Projectile& projectile) {
         const bool changedLevel =
             DamageTextBox(box, CenterX(shot), &organEdits);
         const bool startGame = MainMenuActive() && box.startGame;
-        SaveMutations();
+        MarkMutationsDirty();
         if (startGame) TriggerMainMenuStart();
         for (int edit = 0; edit < organEdits; ++edit)
             UnlockInteriorPortals();
@@ -391,6 +391,59 @@ bool HitText(Projectile& projectile) {
         return true;
     }
     return false;
+}
+
+void EnsurePlayerInteriorFallbackPortals() {
+    RunNode* node = CurrentRunNode();
+    if (!node || node->type != RunNodeType::PlayerInterior) return;
+    if (std::any_of(
+            node->portals.begin(), node->portals.end(),
+            [](const RunPortal& portal) {
+                return portal.temporaryFallback;
+            }))
+        return;
+    const int startRoom = CurrentRoom();
+    if (startRoom < 0) return;
+    std::array<bool, 9> accessible{};
+    accessible[startRoom] = true;
+    std::queue<int> pending;
+    pending.push(startRoom);
+    while (!pending.empty()) {
+        const int room = pending.front();
+        pending.pop();
+        for (int doorway = 0; doorway < 12; ++doorway) {
+            if (!playerInteriorState.brokenDoorways[doorway]) continue;
+            const auto [first, second] =
+                PlayerInteriorDoorwayRooms(doorway);
+            const int next =
+                room == first ? second : room == second ? first : -1;
+            if (next >= 0 && !accessible[next]) {
+                accessible[next] = true;
+                pending.push(next);
+            }
+        }
+    }
+    for (int room = 0; room < static_cast<int>(accessible.size()); ++room)
+        if (accessible[room] &&
+            PlayerInteriorRoomHasAvailableAlteration(room))
+            return;
+
+    constexpr float size = 72.0f;
+    constexpr float margin = 90.0f;
+    for (int room = 0; room < static_cast<int>(rooms.size()); ++room) {
+        RunPortal portal;
+        portal.active = true;
+        portal.armed = false;
+        portal.temporaryFallback = true;
+        portal.sourceRoom = room;
+        portal.interiorTrigger = {
+            RoomX(rooms[room]) + interior.roomSize - margin - size,
+            RoomY(rooms[room]) + interior.roomSize - margin - size,
+            size, size};
+        node->portals.push_back(portal);
+    }
+    BuildInteriorArenaDestinations(*node);
+    RebuildGameplayTextBoxes();
 }
 
 bool HitShield(const Rect& shot, int damage) {
@@ -416,7 +469,8 @@ bool HitShield(const Rect& shot, int damage) {
                 shield.organ >= 0) {
                 node->playerInteriorDoorway = shield.organ;
                 playerInteriorState.brokenDoorways[shield.organ] = true;
-                SaveMutations();
+                MarkMutationsDirty();
+                EnsurePlayerInteriorFallbackPortals();
             }
             PlaySoundEffect(Sound::HitEnemy);
             return true;
@@ -486,14 +540,14 @@ bool HitRoomWall(const Rect& shot) {
         static_cast<int>(localX * 3 / interior.roomSize), 0, 2);
     pixel.rgb[channel] =
         std::max(0, pixel.rgb[channel] - kWallChannelDamage);
-    SaveMutations();
+    MarkMutationsDirty();
     return true;
 }
 
 bool HitMutableGeometry(const Rect& shot) {
     if (currentMap == "audio" && HitAudioGeometry(shot)) return true;
     if (currentMap == "glyph" && HitGlyphGeometry(shot)) {
-        SaveMutations();
+        MarkMutationsDirty();
         return true;
     }
     return HitRoomWall(shot);
@@ -562,7 +616,8 @@ void DetonateBomb(float x, float y, int damage, float radius) {
                 shield.organ >= 0) {
                 node->playerInteriorDoorway = shield.organ;
                 playerInteriorState.brokenDoorways[shield.organ] = true;
-                SaveMutations();
+                MarkMutationsDirty();
+                EnsurePlayerInteriorFallbackPortals();
             }
         }
     }
@@ -583,7 +638,7 @@ void DetonateBomb(float x, float y, int damage, float radius) {
         changedText = true;
     }
     if (changedText) {
-        SaveMutations();
+        MarkMutationsDirty();
         if (startGame) TriggerMainMenuStart();
         for (int edit = 0; edit < organEdits; ++edit)
             UnlockInteriorPortals();
@@ -1426,9 +1481,19 @@ bool UpdateMovementAndPortals(float dt) {
                         return true;
                     }
                     if (portal.destination != kInvalidRunNode) {
+                        const RunNodeId destination = portal.destination;
                         if (portal.continueRun)
                             run.clearedBossQuadrants.fill(false);
-                        EnterRunNode(portal.destination);
+                        if (node->type == RunNodeType::PlayerInterior)
+                            node->portals.erase(
+                                std::remove_if(
+                                    node->portals.begin(),
+                                    node->portals.end(),
+                                    [](const RunPortal& candidate) {
+                                        return candidate.temporaryFallback;
+                                    }),
+                                node->portals.end());
+                        EnterRunNode(destination);
                         PlaySoundEffect(Sound::Teleport);
                         return true;
                     }
@@ -1671,6 +1736,11 @@ void ResolveEnemyCrowding() {
             CenterX(rect) - width * 0.5f,
             CenterY(rect) - height * 0.5f, width, height};
     };
+    struct SeparationPush {
+        float x = 0;
+        float y = 0;
+    };
+    std::vector<SeparationPush> pushes(enemies.size());
     for (std::size_t index = 0; index < enemies.size(); ++index) {
         if (enemies[index].health <= 0 ||
             enemies[index].activationRemaining > 0 ||
@@ -1718,19 +1788,27 @@ void ResolveEnemyCrowding() {
                     pushY = (CenterY(firstRect) < CenterY(secondRect)
                         ? -1.0f : 1.0f) * std::min(
                             maximumPush, overlapY * 0.5f);
-                if (EnemyVisualFitsNetwork(
-                        enemies[a], enemies[a].x + pushX,
-                        enemies[a].y + pushY)) {
-                    enemies[a].x += pushX;
-                    enemies[a].y += pushY;
-                }
-                if (EnemyVisualFitsNetwork(
-                        enemies[b], enemies[b].x - pushX,
-                        enemies[b].y - pushY)) {
-                    enemies[b].x -= pushX;
-                    enemies[b].y -= pushY;
-                }
+                pushes[a].x += pushX;
+                pushes[a].y += pushY;
+                pushes[b].x -= pushX;
+                pushes[b].y -= pushY;
             }
+    }
+    for (std::size_t index = 0; index < enemies.size(); ++index) {
+        float pushX = pushes[index].x;
+        float pushY = pushes[index].y;
+        const float length = std::sqrt(pushX * pushX + pushY * pushY);
+        if (length <= 0.01f) continue;
+        if (length > maximumPush) {
+            pushX = pushX / length * maximumPush;
+            pushY = pushY / length * maximumPush;
+        }
+        if (EnemyVisualFitsNetwork(
+                enemies[index], enemies[index].x + pushX,
+                enemies[index].y + pushY)) {
+            enemies[index].x += pushX;
+            enemies[index].y += pushY;
+        }
     }
 }
 
@@ -1904,7 +1982,7 @@ void UpdateProjectilesAndBombs(float dt) {
                     MainMenuActive() && textBoxes[index].startGame;
                 projectile.boomerangHitTextBoxes.push_back(
                     static_cast<int>(index));
-                SaveMutations();
+                MarkMutationsDirty();
                 if (startGame) TriggerMainMenuStart();
                 for (int edit = 0; edit < organEdits; ++edit)
                     UnlockInteriorPortals();

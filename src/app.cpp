@@ -152,6 +152,9 @@ int WINAPI wWinMain(
     const bool testAudioWallSelection = commandLine &&
         std::wstring(commandLine).find(
             L"--test-audio-wall-selection") != std::wstring::npos;
+    const bool testInteriorWallCache = commandLine &&
+        std::wstring(commandLine).find(
+            L"--test-interior-wall-cache") != std::wstring::npos;
     if (commandLine &&
         std::wstring(commandLine).find(L"--interior-graph-tuner") !=
             std::wstring::npos) {
@@ -230,6 +233,50 @@ int WINAPI wWinMain(
         DestroyBackBuffer();
         DestroyWindow(window);
         return 1;
+    }
+    if (testInteriorWallCache) {
+        std::vector<std::string> archetypes;
+        for (const char* id : {"circle", "triangle", "charger", "shooter"})
+            if (types.count(id)) archetypes.emplace_back(id);
+        auto occupiedPixels = [](const EnemyType& type) {
+            std::size_t count = 0;
+            for (const auto& row : type.sprite)
+                count += static_cast<std::size_t>(std::count_if(
+                    row.begin(), row.end(),
+                    [](const Pixel& pixel) { return pixel.occupied; }));
+            return count;
+        };
+        std::sort(
+            archetypes.begin(), archetypes.end(),
+            [&](const std::string& first, const std::string& second) {
+                return occupiedPixels(types.at(first)) >
+                    occupiedPixels(types.at(second));
+            });
+        std::size_t invalidWalls = 0;
+        std::ofstream report(
+            root.parent_path() / "test" / "interior_wall_cache.txt",
+            std::ios::trunc);
+        for (std::size_t index = 0; index < archetypes.size(); ++index) {
+            interior.archetype = archetypes[index];
+            interior.enemy = archetypes[index];
+            BuildInteriorWorld(0x57414c4c43414348ULL + index);
+            const std::vector<WallRect>& walls = BuildWalls();
+            const std::size_t invalid = static_cast<std::size_t>(
+                std::count_if(
+                    walls.begin(), walls.end(),
+                    [](const WallRect& wall) {
+                        return wall.room < 0 ||
+                            wall.room >= static_cast<int>(rooms.size());
+                    }));
+            invalidWalls += invalid;
+            report << archetypes[index] << ": " << rooms.size()
+                   << " rooms, " << walls.size() << " walls, "
+                   << invalid << " invalid wall indices\n";
+        }
+        ShutdownAudio();
+        DestroyBackBuffer();
+        DestroyWindow(window);
+        return archetypes.size() == 4 && invalidWalls == 0 ? 0 : 1;
     }
     if (testAudioWallSelection) {
         std::size_t audioPixels = 0;
@@ -310,6 +357,7 @@ int WINAPI wWinMain(
             UpdateController();
             Update(dt);
             UpdateAudio(dt);
+            UpdateMutationPersistence(dt);
             Render(window);
         }
         LARGE_INTEGER frameEnd{};
@@ -325,6 +373,7 @@ int WINAPI wWinMain(
                 SwitchToThread();
         }
     }
+    FlushMutations();
     ShutdownAudio();
     DestroyBackBuffer();
     return 0;

@@ -409,6 +409,7 @@ struct RunPortal {
     float width = 0;
     bool active = false;
     bool armed = false;
+    bool temporaryFallback = false;
     bool postBossTuning = false;
     bool continueRun = false;
     Rect interiorTrigger{};

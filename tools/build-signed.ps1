@@ -177,6 +177,7 @@ try {
 
     New-Item -ItemType Directory -Path $packageRoot | Out-Null
     Copy-Item -LiteralPath $gameExecutable -Destination $packageRoot
+    Copy-Item -LiteralPath $resetExecutable -Destination $packageRoot
     Copy-Item -LiteralPath (Join-Path $workspace "release\golden_audio") `
         -Destination $packageRoot -Recurse
     Copy-Item -LiteralPath (Join-Path $workspace "release\golden_scripts") `
@@ -189,9 +190,13 @@ try {
     Compress-Archive -LiteralPath $packageRoot `
         -DestinationPath $zipPath -CompressionLevel Optimal
 
-    $signature = Get-AuthenticodeSignature $gameExecutable
-    if ($signature.Status -ne "Valid") {
-        throw "The packaged game signature is not valid."
+    foreach ($packagedExecutable in @(
+            (Join-Path $packageRoot "the-meta-game.exe"),
+            (Join-Path $packageRoot "reset-game.exe"))) {
+        $signature = Get-AuthenticodeSignature $packagedExecutable
+        if ($signature.Status -ne "Valid") {
+            throw "The packaged signature is not valid: $packagedExecutable"
+        }
     }
 
     Write-Host ""

@@ -18,7 +18,7 @@ void DetonateGlyphBomb(float x, float y, int damage, float radius) {
     PlaySoundEffect(Sound::Explosion);
     if (DamageGlyphGeometryInRadius(
             x, y, radius, damage * kWallChannelDamage))
-        SaveMutations();
+        MarkMutationsDirty();
     explosions.push_back({x, y, kExplosionDuration});
 }
 
@@ -128,7 +128,7 @@ void UpdateGlyphMap(float dt) {
                     DetonateGlyphBomb(
                         projectile.x, projectile.y, projectile.damage,
                         projectile.explosionRadius);
-                SaveMutations();
+                MarkMutationsDirty();
                 projectile.distance = -1;
             }
         }
